@@ -15,19 +15,19 @@ TEMNet and other convolutional backbones (ResNet, Inception, VGG) can be pretrai
 ## Running Training Procedures
 Faster RCNN using a TEMNet backbone (as well as other backbones) can be trained using the training script in the **/scripts/rcnn/** directory as 
 ```
-python3 train.py
+python3 train.py -b [backbone_name]
 ```
-to train other architectures make sure to change the _BACKBONE_ in config.py and provide proper pretraining weights. Weights for every epoch are stored on **/weights/**
+to train other architectures please provide the proper pretraining weights. Weights for every epoch are stored on **/weights/** .
 
 ## Running Prediction Procedures
 Prediction requires trained weights for a given backbone. We have provided weights for TEMNet, ResNet101 and ResNet101v2 which can be downloaded using the script in the **/weights/** directory.
 The predict.py script in **/scripts/rcnn/** handles prediction for individual images
 ```
-python3 predict.py -d '/path/to/image.png'
+python3 predict.py -d 'single' -p '/path/to/image.png' -b [backbone_name]
 ```
-or batches of images
+or batches of images stored in a directory
 ```
-python3 predict.py -d 'uncropped_dataset3'
+python3 predict.py -d 'multiple' -p '/path/to/imgs/' -b [backbone_name]
 ```
-where the path to the directory containing the images must be specified (editing the code for now).
+More options for multi-magnification predictions can be explored with the -h or --help flag.
 Output prediction images and count histograms are stored in the **/graphs/** directory.
