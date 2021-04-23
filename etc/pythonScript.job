@@ -1,0 +1,19 @@
+#!/bin/bash
+
+#SBATCH -J hivclass-train # Job name
+#SBATCH -p v100           # Queue (partition) name
+#SBATCH -N 1              # Total # of nodes
+#SBATCH -n 1              # Total # of mpi tasks/cores
+#SBATCH -t 8:00:00        # Run time (hh:mm:ss)
+
+USR_HOME=/home/07655/jsreyl/
+#input script name as 1st argument
+NAME=$1
+SCRIPT_DIR=`pwd`
+#SCRIPT_DIR=/home/07655/jsreyl/hivclass/scrpits/rpnv2/
+#cd $USR_HOME
+#load container
+#module load tacc-singularity
+#singularity exec docker://python:latest /usr/local/bin/python $SCRIPT_DIR/$NAME
+#singularity exec runtimeEnv.simg /usr/local/bin/python $SCRIPT_DIR/$NAME
+time python3 $SCRIPT_DIR/$NAME
