@@ -4,7 +4,7 @@
 ##### Juan Perilla, Alex Bryer, Hagan Beatson, Juan Rey
 
 ## Introduction
-TEMNet is a CNN backbone designed for viral particle detection from TEM micrographs. TEMNet works as the backbone for a Faster RCNN implementation used for ciral instance detection and classification.
+TEMNet is a CNN backbone designed for viral particle detection from TEM micrographs. TEMNet works as the backbone for a Faster RCNN implementation used for viral instance detection and classification.
 ![Faster RCNN and TEMNet architectures](/graphs/RCNN_TEMNet.png)
 
 ## Getting Started
