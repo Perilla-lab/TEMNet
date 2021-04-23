@@ -5,7 +5,7 @@ Base Configuration, Dataset and utility classes
 Developed by Hagan Beatson, Alex Brier and Juan Rey @ Perillalab University of Delaware (2020)
 """
 
-import cv2, copy, os
+import cv2, copy, os, argparse
 #from matplotlib import pyplot as plt
 from keras.preprocessing.image import img_to_array, load_img
 from keras.utils import Sequence
@@ -39,26 +39,24 @@ class Config(object):
     #SYSTEM SPECIFIC PATH PARAMETERS
     #CHANGE THESE TO SUIT YOUR SYSTEMS DIRECTORY
     PATH_PREFIX = '/scratch/07655/jsreyl/'
-    # PATH_PREFIX = '/home/gorzy/Documents/UDEL/hivclassification/'
 
     LOGS = PATH_PREFIX + 'hivclass/logs/'   # SAVE PATH FOR LOGS
     WEIGHT_PATH = PATH_PREFIX + 'hivclass/checkpoints/rcnn/'                 # SAVE PATH FOR CHECKPOINTS
-    #TRAIN_PATH = PATH_PREFIX + 'imgs/cropped_rcnn_inclusive_augmented2/train'                             # PATH FOR TRAINING DATA DIRECTORY
-    #VAL_PATH = PATH_PREFIX + 'imgs/cropped_rcnn_inclusive_augmented2/val'                                 # PATH FOR VALIDATION DATA DIRECTORY
-    #TRAIN_PATH = PATH_PREFIX + 'imgs/cropped_rcnn_augmented_full/train'                             # PATH FOR TRAINING DATA DIRECTORY
-    #VAL_PATH = PATH_PREFIX + 'imgs/cropped_rcnn_augmented_full/val'                                 # PATH FOR VALIDATION DATA DIRECTORY
     TRAIN_PATH = PATH_PREFIX + 'imgs/cropped_iou075_augmented_rcnn_full/train'                             # PATH FOR TRAINING DATA DIRECTORY
     VAL_PATH = PATH_PREFIX + 'imgs/cropped_iou075_augmented_rcnn_full/val'                                 # PATH FOR VALIDATION DATA DIRECTORY
+    TRAIN_PATH_NOAUG = PATH_PREFIX + 'imgs/rcnn_dataset_full/train'                             # PATH FOR TRAINING DATA BEFORE AUGMENTATIONS
+    VAL_PATH_NOAUG = PATH_PREFIX + 'imgs/rcnn_dataset_full/val'                                 # PATH FOR VALIDATION DATA BEFORE_AUGMENTATIONS
     IMAGE_PATH = PATH_PREFIX + 'imgs/rescaled_cropped_datasets/'                     # PATH FOR GENERAL IMG SETS
-    WEIGHT_SET = WEIGHT_PATH + '/saved_weights/rcnn_novel_weights.10_aug_gn_fpn2620_res512_wt_full.hdf5'                            # Set to load the weight set at the final training epoch, can be changed if needed mAP 80.00
-    #mAP 77.76 WEIGHT_SET = WEIGHT_PATH + '/saved_weights/rcnn_novel_weights.06_aug_bn_fpn2620_res512_wt_full.hdf5'                            # Set to load the weight set at the final training epoch, can be changed if needed
-    # WEIGHT_SET = WEIGHT_PATH + '/saved_weights/rcnn_novel_weights.40_aug_gn_fpn2620_res512_full.hdf5'                            # Set to load the weight set at the final training epoch, can be changed if needed mAP= 77.13
-    # WEIGHT_SET = WEIGHT_PATH + '/saved_weights/rcnn_novel_weights.14_aug_bn_fpn2620_res512_full.hdf5'                            # Set to load the weight set at the final training epoch, can be changed if needed
-
+    #Weight sets for different backbones
+    WEIGHT_SET_DICT = {
+        'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
+        'resnet101': WEIGHT_PATH + '/rcnn_resnet101_weights_res512.hdf5',
+        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_res512.hdf5'
+    }
     # General hyperparams
     #Name of the configuration, this can be overridden in Config instances
     #This is useful to create experiments with different hyperparameters and identify them
-    NAME = "HIV"
+    NAME = "HIV-1"
 
     #Number of GPUs to run on.
     GPU_COUNT = 4
@@ -71,8 +69,8 @@ class Config(object):
     EPOCHS = 100
 
     #Backbone convolutional network to use
-    #Impleneted architectures: novel (TEMNet), resnet50, resnet101, resnet152, resnet50v2, resnet101v2, resnet152v2, vgg.
-    BACKBONE = "novel"
+    #Impleneted architectures: temnet, resnet50, resnet101, resnet152, resnet50v2, resnet101v2, resnet152v2, vgg.
+    BACKBONE = "temnet"
 
     #Strides for the feature map shapes (this is used to calculate the cnn shapes in cnn_input_shapes and to generate anchors in generate_anchors)
     BACKBONE_STRIDES = [4,8,16,32,64]
@@ -146,8 +144,9 @@ class Config(object):
     MASK_POOL_SIZE = 14
     
     # Size of the fully-connected layers in the classification graph
-    FPN_CLASSIF_FC_LAYERS_SIZE = 64 #1024
-    
+    FPN_CLASSIF_FC_LAYERS_SIZE_TEMNET = 64 
+    FPN_CLASSIF_FC_LAYERS_SIZE_RESNET = 1024
+
     #Validation Data parameters
     #Maximum number of ground truth in each image
     MAX_GT_INSTANCES = 20 #100
@@ -155,13 +154,16 @@ class Config(object):
     #Input image shape for the RPN, all images are rescaled to this size on image load
     IMAGE_SHAPE = (512, 512)
     #Size of the dataset images, change here for your dataset's specific needs, inputing diferent sized images is slower so it's not recommended
-    #TODO: Since all coordinates are normalized we could in theory use any size, study this possibility, this might require padding images to the same size before training
-    #DATASET_IMAGE_SIZE=(2620,4000) #For the full images
     DATASET_IMAGE_SIZE=(1024,1024) #For the cropped dataset
     #Number of channels for the input image, the rcnn implementation only receives color images
     #If your images are greyscale these are automatically transformed to color by our load_img
     #If your images have an alpha channel it is removed before training so the number of channels is 3 instead of 4
     NUM_CHANNELS = 3
+
+    # Specific parameters for the training data used
+    BASE_MAGNIFICATION = 30000 # Magnification of TEM micrographs used for training
+    BASE_CROP_SIZE = 1024 # pixels, size of the cropped micrographs used for training
+    BASE_CROP_STEP = 500 # pixels, size of the steps for the overlapping cropped micrographs used for training
 
     #Learning rate for model optimizer, since the model momentum is high we need to keep this down to stop ourselves from overstepping the minima
     #LEARNING_RATE = 0.000000000000001
@@ -187,7 +189,7 @@ class Config(object):
     #Whether to train the batch normalization layers in network area
     TRAIN_BATCH_NORMALIZATION = False
 
-    #Image augmentation parameters
+    #Online image augmentation parameters, set these to False if you're using offline agumentation
     USE_HORIZONTAL_FLIPS = False #True
     USE_VERTICAL_FLIPS = False #True
     USE_ROTATION_180 = False #True
@@ -198,10 +200,22 @@ class Config(object):
     GENERATE_DETECTION_TARGETS = False #True # Whether to create detection targets as outputs of the dataset class or to get them from the RPN proposals
     TRAIN_ONLY_RPN = False #Whether to train only the RPN and not the classifier heads
 
-    def __init__(self):
+    def __init__(self, backbone='temnet'):
+        """
+        backbone: Backbone convolutional archiitecture to use for training and inference
+        """
         #Verify that train and validation paths exist
         assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
         assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
+        #Tune specific network parameters depending on the backbone
+        self.BACKBONE = backbone
+        assert(self.BACKBONE in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
+        self.WEIGHT_SET = self.WEIGHT_SET_DICT[self.BACKBONE]
+        if(self.BACKBONE == 'temnet'):
+            self.FPN_CLASSIF_FC_LAYERS_SIZE = FPN_CLASSIF_FC_LAYERS_SIZE_TEMNET
+        else:
+            self.FPN_CLASSIF_FC_LAYERS_SIZE = FPN_CLASSIF_FC_LAYERS_SIZE_RESNET
+
 
     def to_dict(self):
         """Returns a dictionary with all the attributes of the config class"""
@@ -598,7 +612,10 @@ class Image(Sequence):
 
 #Test config implementation
 if __name__ == '__main__':
-    config = Config()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
+    args = parser.parse_args()
+    config = Config(backbone=args.backbone)
     config.display()
     dataset=Dataset(config.TRAIN_PATH, config, "train")
     for i in range(len(dataset)):# Every batch

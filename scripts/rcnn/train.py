@@ -35,10 +35,10 @@ def compound_training(model, dataset, iterations):
 """
 train_model: Run a single training procedure for RPN model
 """
-def train_model():
+def train_model(backbone='temnet'):
     with(tf.device('/GPU:0')):
     #with mirrored_strategy.scope():
-        config = Config()
+        config = Config(backbone=backbone)
         print(f"Training for RPN: {config.TRAIN_ONLY_RPN}")
         dataset = {"train": Dataset(config.TRAIN_PATH, config, "train"), "validation": Dataset(config.VAL_PATH, config, "validation")}
         rcnn = RCNN(config, 'train')
@@ -48,7 +48,7 @@ def train_model():
             print("--------------------Training RPN model ------------------")
             if "resnet" in config.BACKBONE:
                 weights_path = '/scratch/07655/jsreyl/hivclass/models/pretrained/resnet101_weights.h5'
-            elif config.BACKBONE == "novel":
+            elif config.BACKBONE == "temnet":
                 # weights_path = '/scratch/07655/jsreyl/hivclass/models/pretrained/novel-weights-95_acc8564.hdf5' #Use this if you're not using BN or GN
                 weights_path = '/scratch/07655/jsreyl/hivclass/models/pretrained/novel-weights-64_acc8785_bn.hdf5' #Use this if you're using BN
                 # weights_path = '/scratch/07655/jsreyl/hivclass/models/pretrained/novel-weights-23_acc8619_gn.hdf5' #Use this if you're using GN
@@ -58,7 +58,7 @@ def train_model():
                 #resnet_weights_path = tf.train.latest_checkpoint('/scratch/07655/jsreyl/hivclass/checkpoints/rcnn/')
                 weights_path = '/scratch/07655/jsreyl/hivclass/checkpoints/rcnn/rcnn_weights.50.hdf5'
                 # weights_path = config.WEIGHT_SET
-            elif config.BACKBONE == "novel":
+            elif config.BACKBONE == "temnet":
                 #weights_path = '/scratch/07655/jsreyl/hivclass/checkpoints/rcnn/saved_weights/rpn_novel_weights.99_aug_bn.hdf5'
                 weights_path = '/scratch/07655/jsreyl/hivclass/checkpoints/rcnn/saved_weights/rpn_novel_weights.50_aug_gn.hdf5'
                 # weights_path = '/scratch/07655/jsreyl/hivclass/models/pretrained/novel-weights-23_acc8619_gn.hdf5' #Use this if you're using GN
@@ -70,7 +70,10 @@ def train_model():
         V.visualize_learning_rate(lrm.lrates, config)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
+    args = parser.parse_args()
     start=time.perf_counter()
-    train_model()
+    train_model(args.backbone)
     finish=time.perf_counter()
     print(f"Finished in {round(finish-start,2)} seconds")

@@ -274,7 +274,6 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config):
     all_pred_boxes = np.array(all_pred_boxes)
     all_pred_class_ids = np.array(all_pred_class_ids)
     all_pred_scores = np.array(all_pred_scores)
-    #TODO: Ideally do non-max-supression now so we don't repeat boxes
     # print(f"all_pred_boxes before nms: {all_pred_boxes}")
     nms_idx = I.nms3(all_pred_boxes, all_pred_scores, all_pred_class_ids, nms_treshold=0.25)
     # print(f"nms_idx: \n {nms_idx}")
@@ -287,7 +286,7 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config):
     # V.visualize_rcnn_predictions(source_image, all_pred_boxes, all_pred_class_ids, all_pred_scores, img_name)
     V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, img_name)
     V.visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, img_name)
-    V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
+    #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
     return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores
   else:
     one_boxes, one_class_ids, one_scores = predict_one_image([img_path], config)
@@ -428,12 +427,34 @@ def write_counts_csv(csvname, img_names, gt_counts, pred_counts, fp_counts):
       
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  parser.add_argument("-d", "--data", help="ID of dataset you wish to predict on", default='uncropped_dataset3')
+  parser.add_argument("-d", "--data", help="\'single\', \'multiple\' or \'test dataset\' image prediction", default='multiple')
+  parser.add_argument("-p", "--path", help="Path to the image to predict or directory containing images for multiple image prediction", default='')
+  parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
+  parser.add_argument("-m", "--magnification", help="Magnification of the input image for prediction", default=30000, type=int)
   args = parser.parse_args()
-  config = Config()
-  print(f"Predicting from dataset: {args.data}")
+  if(args.path == ''){
+      print('\n Please provide a valid path for image prediction.')
+      print('Options:\n')
+      print("-d", "\t --data", "\t \'single\' or \'multiple\' image prediction")
+      print("-p", "\t --path", "\t Path to the image to predict or directory containing images for multiple image prediction")
+      print("-b", "\t --backbone", "\t Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model")
+      print("-m", "\t --magnification", "\t Magnification of the input image for prediction")
+  }
+  config = Config(backbone=args.backbone)
+  print(f"Prediction mode: {args.data}")
+  print(f"Predicting from: {args.path}")
+  print(f"Magnification of input TEM micrographs: {args.magnification}")
+  print(f"Model for prediction: {config.BACKBONE}")
   print(f"Reading weights from: {config.WEIGHT_SET}")
-  if(args.data == 'all'):
+  magnification = args.magnification
+  base_magnification = config.BASE_MAGNIFICATION
+  base_crop_size = config.BASE_CROP_SIZE
+  base_crop_step = config.BASE_CROP_STEP
+  new_crop_size = int(magnification * (base_crop_size/base_magnification) )
+  new_crop_step = int(magnification * (base_crop_step/base_magnification) )
+  crop_size = (new_crop_size, new_crop_size)
+  crop_step = (new_crop_step, new_crop_step)
+  if(args.data == 'dataset_all'):
     datasets = {"train": Dataset(config.TRAIN_PATH, config, "train"), "validation": Dataset(config.VAL_PATH, config, "validation")}
     avg_mAP_val, mAPs_val = predict_all_rcnn(datasets["validation"], config)
     avg_mAP_train, mAPs_train = predict_all_rcnn(datasets["train"], config)
@@ -450,34 +471,12 @@ if __name__ == '__main__':
   elif(args.data=='dataset_random'):
     dataset = Dataset(config.VAL_PATH, config, "validation")
     visualize(dataset, config, args.data)
-  elif(args.data == 'uncropped_dataset'):
+  elif(args.data == 'train_val_noaug_dataset'):
     #Build image paths
-    config.TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rescaled_rcnn_og/train'
-    config.VAL_PATH = '/scratch/07655/jsreyl/imgs/rescaled_rcnn_og/val'
-    # Read images from train and validation:
-    train_ids = next(os.walk(config.TRAIN_PATH))[1]#All folder names in TRAIN_PATH
-    val_ids = next(os.walk(config.VAL_PATH))[1]#All folder names in TRAIN_PATH
-    image_paths = [os.path.join(config.TRAIN_PATH, img_name, img_name+'.png') for img_name in train_ids]
-    image_paths += [os.path.join(config.VAL_PATH, img_name, img_name+'.png') for img_name in val_ids]
-    #Sequentially predict on the uncropped images and store their class ids
-    all_class_ids = []
-    all_scores = []
-    for img_path in image_paths:
-      _, pred_class_ids, pred_scores = predict_uncropped_image(img_path, config)
-      all_class_ids += list(pred_class_ids)
-      all_scores += list(pred_scores)
-    #Now save a histogram of all the class ids
-    V.visualize_predictions_count(np.array(all_class_ids).astype('int32'), np.array(all_scores), 'Full Dataset')
-  elif(args.data == 'uncropped_dataset2'):
-    # crop_size = (512,512)
-    # crop_step = (250, 250)
-    crop_size = (1024,1024)
-    crop_step = (500, 500)
-    #Build image paths
-    #TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rescaled_rcnn_og/train'
-    #VAL_PATH = '/scratch/07655/jsreyl/imgs/rescaled_rcnn_og/val'
-    TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
-    VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
+    # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
+    # VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
+    TRAIN_PATH = config.TRAIN_PATH_NOAUG
+    VAL_PATH = config.VAL_PATH_NOAUG
     # Read images from train and validation:
     train_ids = next(os.walk(TRAIN_PATH))[1]#All folder names in TRAIN_PATH
     val_ids = next(os.walk(VAL_PATH))[1]#All folder names in TRAIN_PATH
@@ -488,15 +487,15 @@ if __name__ == '__main__':
     #Sequentially predict on the uncropped images and store their class ids
     #Predict for both Train and Validation sets
     avg_mAP_train, mAPs_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train, fp_counts_train = predict_all_uncropped(image_paths_train, csv_paths_train, crop_size, crop_step, config)
-    V.visualize_predictions_count(class_ids_train, scores_train, f'train_dataset_window_{crop_size[0]}')
-    V.visualize_score_histograms(np.array(class_ids_train), np.array(scores_train), f'train_dataset_window_{crop_size[0]}')
+    #V.visualize_predictions_count(class_ids_train, scores_train, f'train_dataset_window_{crop_size[0]}')
+    #V.visualize_score_histograms(np.array(class_ids_train), np.array(scores_train), f'train_dataset_window_{crop_size[0]}')
     write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, fp_counts_train)
     avg_mAP_val, mAPs_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val, fp_counts_val = predict_all_uncropped(image_paths_val, csv_paths_val, crop_size, crop_step, config)
-    V.visualize_predictions_count(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
-    V.visualize_score_histograms(np.array(class_ids_val), np.array(scores_val), f'val_dataset_window_{crop_size[0]}')
+    #V.visualize_predictions_count(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
+    #V.visualize_score_histograms(np.array(class_ids_val), np.array(scores_val), f'val_dataset_window_{crop_size[0]}')
     write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, fp_counts_val)
     write_counts_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, fp_counts_train+fp_counts_val)
-    V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
+    #V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
 
     print("\n")
     print(77*"#")
@@ -508,94 +507,23 @@ if __name__ == '__main__':
     print(f"TRAINING max mAP: {np.max(mAPs_train)}")
     print(f"TRAINING min mAP: {np.min(mAPs_train)}")
     print(f"COMPLETE avg mAP: {np.mean(mAPs_train+mAPs_val)}")
-  elif(args.data == 'uncropped_dataset3'):
-    magnification = 30000
-    base_magnification = 30000
-    base_crop_size = 1024
-    base_crop_step = 500
-    new_crop_size = int(magnification * (base_crop_size/base_magnification) )
-    new_crop_step = int(magnification * (base_crop_step/base_magnification) )
-    crop_size = (new_crop_size, new_crop_size)
-    crop_step = (new_crop_step, new_crop_step)
+  elif(args.data == 'multiple'):
     #Build image paths
-    TRAIN_PATH = '/scratch/07655/jsreyl/imgs/nov_dataset'
+    # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/nov_dataset'
+    IMAGES_PATH = args.path
     # Read images from train and validation:
-    train_ids = next(os.walk(TRAIN_PATH))[1]#All folder names in TRAIN_PATH
-    image_paths_train = [os.path.join(TRAIN_PATH, img_name, img_name+'.png') for img_name in train_ids]
-    # csv_paths_train = [os.path.join(TRAIN_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in train_ids]
-    #Sequentially predict on the uncropped images and store their class ids
+    images_ids = next(os.walk(IMAGES_PATH))[2]#All file names in IMAGES_PATH
+    image_paths_train = [os.path.join(IMAGES_PATH, img_name) for img_name in images_ids if img_name.endswith('.png')]
+    if(len(image_paths_train)==0):#No images found? Search directory-wise, i.e. /path/07655/07655.png
+      images_ids = next(os.walk(IMAGES_PATH))[1]#All folder names in IMAGES_PATH
+      image_paths_train = [os.path.join(IMAGES_PATH, img_name, img_name+'.png') for img_name in images_ids]
     #Predict for both Train and Validation sets
-    #img_names = []
     for image_path in image_paths_train:
         imgName = image_path.split('/')[-1].split('.')[0]
         #img_names.append(imgName)
         _, pred_class_ids, pred_scores = predict_uncropped_image(image_path, crop_size, crop_step, config)
-        V.visualize_score_histograms(np.array(pred_class_ids), np.array(pred_scores), f'{imgName}_window_{crop_size[0]}')
-        V.visualize_predictions_count(np.array(pred_class_ids), np.array(pred_scores), f'{imgName}_window_{crop_size[0]}')
-    # write_counts_csv(config.LOGS+f'november_dataset_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names, pred_counts, pred_counts, fp_counts_train)
-
-    #print("\n")
-    #print(77*"#")
-    #print(f"####### PREDICTIONS LOG FOR WILD TYPE DATASET #######")
-    #print(f"TRAINING avg mAP: {avg_mAP_train}")
-    #print(f"TRAINING max mAP: {np.max(mAPs_train)}")
-    #print(f"TRAINING min mAP: {np.min(mAPs_train)}")
-  elif(args.data == 'uncropped_dataset_multicrops'):
-    # Predict on different crop sizes
-    # Build image paths
-    TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rescaled_rcnn_og/train'
-    VAL_PATH = '/scratch/07655/jsreyl/imgs/rescaled_rcnn_og/val'
-    # Read images from train and validation:
-    train_ids = next(os.walk(TRAIN_PATH))[1]#All folder names in TRAIN_PATH
-    val_ids = next(os.walk(VAL_PATH))[1]#All folder names in TRAIN_PATH
-    image_paths_train = [os.path.join(TRAIN_PATH, img_name, img_name+'.png') for img_name in train_ids]
-    image_paths_val = [os.path.join(VAL_PATH, img_name, img_name+'.png') for img_name in val_ids]
-    csv_paths_train = [os.path.join(TRAIN_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in train_ids]
-    csv_paths_val = [os.path.join(VAL_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in val_ids]
-    # list of crop and step sizes
-    cropped_sizes = [(512,512),(1024,1024),(2048,2048),(4096,4096)]
-    crop_steps = [(250,250),(500,500),(1000,1000),(2000,2000)]
-
-    for crop_size, crop_step in zip(cropped_sizes, crop_steps):
-      print(f"Predicting for crop_size: {crop_size} and crop_step: {crop_step}")
-      #Sequentially predict on the uncropped images and store their class ids
-      #Predict for both Train and Validation sets
-      avg_mAP_train, mAPs_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train, fp_counts_train = predict_all_uncropped(image_paths_train, csv_paths_train, crop_size, crop_step, config)
-      V.visualize_predictions_count(class_ids_train, scores_train, f'itrain_dataset_window_{crop_size[0]}')
-      V.visualize_score_histograms(class_ids_train, scores_train, f'train_dataset_window_{crop_size[0]}')
-      write_counts_csv(config.LOGS+f'training_counts_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, fp_counts_train)
-      avg_mAP_val, mAPs_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val, fp_counts_val = predict_all_uncropped(image_paths_val, csv_paths_val, crop_size, crop_step, config)
-      V.visualize_predictions_count(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
-      V.visualize_score_histograms(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
-      write_counts_csv(config.LOGS+f'validation_counts_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, fp_counts_val)
-      write_counts_csv(config.LOGS+f'full_counts_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, fp_counts_train+fp_counts_val)
-      V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
-      print("\n")
-      print(77*"#")
-      print(f"####### PREDICTIONS LOG FOR UNCROPPED DATASET AT WINDOW SIZE {crop_size[0]} #######")
-      print(f"VALIDATION avg mAP: {avg_mAP_val}")
-      print(f"VALIDATION max mAP: {np.max(mAPs_val)}")
-      print(f"VALIDATION min mAP: {np.min(mAPs_val)}")
-      print(f"TRAINING avg mAP: {avg_mAP_train}")
-      print(f"TRAINING max mAP: {np.max(mAPs_train)}")
-      print(f"TRAINING min mAP: {np.min(mAPs_train)}")
-      print(f"COMPLETE avg mAP: {np.mean(mAPs_train+mAPs_val)}")
-  else:
-    # list of crop and step sizes
-    # cropped_sizes = [(512,512),(1024,1024),(2048,2048),(4096,4096)]
-    # crop_steps = [(250,250),(500,500),(1000,1000),(2000,2000)]
-    magnification = 30000
-    base_magnification = 30000
-    base_crop_size = 1024
-    base_crop_step = 500
-    new_crop_size = int(magnification * (base_crop_size/base_magnification) )
-    new_crop_step = int(magnification * (base_crop_step/base_magnification) )
-    cropped_sizes = [(new_crop_size, new_crop_size)]
-    crop_steps = [(new_crop_step, new_crop_step)]
-    imgName = args.data.split('/')[-1].split('.')[0]
-    for crop_size, crop_step in zip(cropped_sizes, crop_steps):
-      print(f"Predicting with crop size: {crop_size} and crop step {crop_step}")
-      _, pred_class_ids, pred_scores = predict_uncropped_image(args.data, crop_size, crop_step, config)
-      V.visualize_score_histograms(np.array(pred_class_ids), np.array(pred_scores), f'{imgName}_window_{crop_size[0]}')
-    #img_paths=[args.data]
-    #predict_one_image(img_paths, config)
+  elif(args.data == 'single'):
+    imgName = args.path.split('/')[-1].split('.')[0]
+    print(f"Predicting with crop size: {crop_size} and crop step {crop_step}")
+    _, pred_class_ids, pred_scores = predict_uncropped_image(args.path, crop_size, crop_step, config)
+    #V.visualize_score_histograms(np.array(pred_class_ids), np.array(pred_scores), f'{imgName}_window_{crop_size[0]}')
