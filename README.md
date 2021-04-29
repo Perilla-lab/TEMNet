@@ -1,7 +1,7 @@
 # TEMNet. HIV-1 Particle Scan Classifier Network
 ##### University of Delaware Apr 2021
 ##### Perilla Labs Research Group
-##### Juan Perilla, Alex Bryer, Hagan Beatson, Juan Rey
+##### Juan S. Rey, Alex Bryer, Hagan Beatson, Christian Lantz, and Juan R. Perilla
 
 ## Introduction
 TEMNet is a CNN backbone designed for viral particle detection from TEM micrographs. TEMNet works as the backbone for a Faster RCNN implementation used for viral instance detection and classification.
