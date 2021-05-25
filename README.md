@@ -7,7 +7,7 @@
 TEMNet is a CNN backbone designed for viral particle detection from TEM micrographs. TEMNet works as the backbone for a Faster RCNN implementation used for viral instance detection and classification.
 ![Faster RCNN and TEMNet architectures](/graphs/RCNN_TEMNet.png)
 
-![HIV-1 TEM micrograph](/graphs/samples/1797001.tif)
+![HIV-1 TEM micrograph](/graphs/samples/1797001.png)
 ![HIV-1 predicted TEM micrograph](/graphs/rcnn/RCNN_PREDS_1797001_05_24_10_16_.png)
 ![HIV-1 predicted histogram](/graphs/rcnn/RCNN_COUNTS_1797001_05_24_10_16.png)
 
