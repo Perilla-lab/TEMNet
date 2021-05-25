@@ -6,14 +6,12 @@ Developed by Hagan Beatson, Alex Brier and Juan Rey @ Perillalab University of D
 """
 
 import cv2, copy, os, argparse
-#from matplotlib import pyplot as plt
-from keras.preprocessing.image import img_to_array, load_img
-from keras.utils import Sequence
+from tensorflow.keras.preprocessing.image import img_to_array, load_img
+from tensorflow.keras.utils import Sequence
 import numpy as np
 import time
 
 import input_pipeline as I
-#import helpers as H
 
 """
 A Stopwatch to measure the time a given function takes to process
@@ -38,15 +36,16 @@ https://github.com/akTwelve/Mask_RCNN
 class Config(object):
     #SYSTEM SPECIFIC PATH PARAMETERS
     #CHANGE THESE TO SUIT YOUR SYSTEMS DIRECTORY
-    PATH_PREFIX = '/scratch/07655/jsreyl/'
+    # PATH_PREFIX = '/scratch/07655/jsreyl/'
+    PATH_PREFIX = os.path.abspath(os.path.join(os.getcwd(), os.pardir, os.pardir)) # your_path/TEMNet/
 
-    LOGS = PATH_PREFIX + 'hivclass/logs/'   # SAVE PATH FOR LOGS
-    WEIGHT_PATH = PATH_PREFIX + 'hivclass/checkpoints/rcnn/'                 # SAVE PATH FOR CHECKPOINTS
-    TRAIN_PATH = PATH_PREFIX + 'imgs/cropped_iou075_augmented_rcnn_full/train'                             # PATH FOR TRAINING DATA DIRECTORY
-    VAL_PATH = PATH_PREFIX + 'imgs/cropped_iou075_augmented_rcnn_full/val'                                 # PATH FOR VALIDATION DATA DIRECTORY
-    TRAIN_PATH_NOAUG = PATH_PREFIX + 'imgs/rcnn_dataset_full/train'                             # PATH FOR TRAINING DATA BEFORE AUGMENTATIONS
-    VAL_PATH_NOAUG = PATH_PREFIX + 'imgs/rcnn_dataset_full/val'                                 # PATH FOR VALIDATION DATA BEFORE_AUGMENTATIONS
-    IMAGE_PATH = PATH_PREFIX + 'imgs/rescaled_cropped_datasets/'                     # PATH FOR GENERAL IMG SETS
+    LOGS = os.path.join(PATH_PREFIX, 'logs')   # SAVE PATH FOR LOGS
+    WEIGHT_PATH = os.path.join(PATH_PREFIX, 'weights')                 # SAVE PATH FOR CHECKPOINTS
+    TRAIN_PATH = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_augmented','train')                             # PATH FOR TRAINING DATA DIRECTORY
+    VAL_PATH = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_augmented','val')                             # PATH FOR VALIDATION DATA DIRECTORY
+    TRAIN_PATH_NOAUG = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_full','train')                             # PATH FOR TRAINING DATA BEFORE AUGMENTATIONS
+    VAL_PATH_NOAUG = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_full','val')                                 # PATH FOR VALIDATION DATA BEFORE_AUGMENTATIONS
+    IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn')                     # PATH FOR GENERAL IMG SETS
     #Weight sets for different backbones
     WEIGHT_SET_DICT = {
         'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
@@ -144,7 +143,7 @@ class Config(object):
     MASK_POOL_SIZE = 14
     
     # Size of the fully-connected layers in the classification graph
-    FPN_CLASSIF_FC_LAYERS_SIZE_TEMNET = 64 
+    FPN_CLASSIF_FC_LAYERS_SIZE_TEMNET = 64
     FPN_CLASSIF_FC_LAYERS_SIZE_RESNET = 1024
 
     #Validation Data parameters
@@ -212,9 +211,9 @@ class Config(object):
         assert(self.BACKBONE in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
         self.WEIGHT_SET = self.WEIGHT_SET_DICT[self.BACKBONE]
         if(self.BACKBONE == 'temnet'):
-            self.FPN_CLASSIF_FC_LAYERS_SIZE = FPN_CLASSIF_FC_LAYERS_SIZE_TEMNET
+            self.FPN_CLASSIF_FC_LAYERS_SIZE = self.FPN_CLASSIF_FC_LAYERS_SIZE_TEMNET
         else:
-            self.FPN_CLASSIF_FC_LAYERS_SIZE = FPN_CLASSIF_FC_LAYERS_SIZE_RESNET
+            self.FPN_CLASSIF_FC_LAYERS_SIZE = self.FPN_CLASSIF_FC_LAYERS_SIZE_RESNET
 
 
     def to_dict(self):

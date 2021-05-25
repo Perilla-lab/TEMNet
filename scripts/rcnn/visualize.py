@@ -6,10 +6,11 @@ import matplotlib.patches as patches
 
 import input_pipeline as I
 from config import Config, Dataset
-from keras.preprocessing.image import img_to_array, load_img
+from tensorflow.keras.preprocessing.image import img_to_array, load_img
 
 # Defining global path prefix so we stop saving stuff on /home/ and actually use scratch for its intended purpose
-PATH_PREFIX='/scratch/07655/jsreyl/hivclass/'
+PATH_PREFIX = os.path.abspath(os.path.join(os.getcwd(), os.pardir, os.pardir))
+IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn')                     # PATH FOR GENERAL IMG SETS
 
 """
 visualize_rpn_predictions: Self explanatory
@@ -33,7 +34,7 @@ def visualize_rpn_predictions(image, sorted_anchors, imgName):
         #since patches.Rectangle receives the lower left corner we need to enter (x1,y2) and calculate the height and width accordingly
         rect = patches.Rectangle((i[1], i[2]), i[3] - i[1], i[0] - i[2], linewidth=1, edgecolor='r', facecolor='none', linestyle='-')
         axes.add_patch(rect)
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/RCNN_PREDS_" + imgName+ "_" + date + ".png", bbox_inches = 'tight', pad_inches = 0.5)
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_PREDS_" + imgName+ "_" + date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
 
 """
 visualize_training_anchors: Visualize the proposed negative and positive anchors while training RPN
@@ -66,7 +67,7 @@ def visualize_training_anchors(positive_anchors, negative_anchors, image, imgNam
         #rect = patches.Rectangle((h[3], h[0]), h[1]-h[3], h[2]-h[0], linewidth=1.5, edgecolor='r', facecolor='none', linestyle=':')
         rect = patches.Rectangle((h[1], h[2]), h[3]-h[1], h[0]-h[2], linewidth=1.5, edgecolor='r', facecolor='none', linestyle=':')
         axes[1].add_patch(rect)
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/ANCHORS_" + imgName + "_" + date + "_.png", bbox_inches = 'tight', pad_inches = 0.5)
+    fig.savefig(os.path.join(IMAGE_PATH,"ANCHORS_" + imgName + "_" + date + "_.png"), bbox_inches = 'tight', pad_inches = 0.5)
 
 """
 visualize_bboxes: Visualize bounding boxes in an image to be saved
@@ -86,7 +87,7 @@ def visualize_bboxes(image, bboxes, imgName):
     for i in bboxes:
         rect = patches.Rectangle((i[1], i[2]), i[3]-i[1], i[0]-i[2], linewidth=1, edgecolor='r', facecolor='none', linestyle='-')
         axes.add_patch(rect)
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/BBOXES_" + imgName + "_" + date + "_.png", bbox_inches = 'tight', pad_inches = 0.5)
+    fig.savefig(os.path.join(IMAGE_PATH,"BBOXES_" + imgName + "_" + date + "_.png"), bbox_inches = 'tight', pad_inches = 0.5)
 
 """
 visualize_benchmarks: Visualize loss and training time incurred per epoch
@@ -126,11 +127,11 @@ def visualize_benchmarks(train_loss, val_loss, config):
     axes[0].plot(train_loss, marker='o')
     axes[0].plot(val_loss, marker='o')
     axes[0].legend(['Training Loss', 'Validation Loss'], loc='upper right')
-    lossfile_path = PATH_PREFIX+"graphs/rcnn/RCNN_OUR_BENCHMARKS_"+config.BACKBONE+"_losses.txt"
+    lossfile_path = os.path.join(IMAGE_PATH,"RCNN_OUR_BENCHMARKS_"+config.BACKBONE+"_losses.txt")
     with open(lossfile_path, 'w') as lossfile:
         for i in range(len(train_loss)):
             lossfile.write("{} {} {}".format(i, train_loss[i], val_loss[i]))
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/RCNN_OUR_BENCHMARKS_"+config.BACKBONE+"_"+date)
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_BENCHMARKS_"+config.BACKBONE+"_"+date+".png"))
 
 """
 visualize_learning_rate: Visualize learning rate progression across the training
@@ -156,11 +157,11 @@ def visualize_learning_rate(lr, config):
  
     axes.plot(lr, marker='o')
     axes.legend(['Learning rate'], loc='upper right')
-    lossfile_path = PATH_PREFIX+"graphs/rcnn/RCNN_OUR_BENCHMARKS_"+config.BACKBONE+"_lr.txt"
+    lossfile_path = os.path.join(IMAGE_PATH,"RCNN_OUR_BENCHMARKS_"+config.BACKBONE+"_lr.txt")
     with open(lossfile_path, 'w') as lossfile:
         for i in range(len(lr)):
             lossfile.write("{} {}".format(i, lr[i]))
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/RCNN_OUR_BENCHMARKS_lr_"+date)
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_BENCHMARKS_lr_"+date+".png"))
 
 
 """
@@ -194,7 +195,7 @@ def visualize_parsed_bboxes(train_path, val_path):
             rect = patches.Rectangle((n, h), z, t, linewidth=3, alpha=0.7, linestyle='dashed',edgecolor=color,facecolor='none')
             axes.add_patch(rect)
             boxcount += 1
-        fig.savefig(PATH_PREFIX+"graphs/rcnn/BBOXES_VIS_" + image_ids_val[i] + ".png", bbox_inches = 'tight', pad_inches = 0.5)
+        fig.savefig(os.path.join(IMAGE_PATH,"BBOXES_VIS_" + image_ids_val[i] + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
         plt.close(fig)
 
     for i in range(len(image_ids_train)):
@@ -209,7 +210,7 @@ def visualize_parsed_bboxes(train_path, val_path):
             rect = patches.Rectangle((n, h), z, t, linewidth=1.5, edgecolor='r',facecolor='none')
             axes.add_patch(rect)
             boxcount += 1
-        fig.savefig(PATH_PREFIX+"graphs/rcnn/BBOXES_VIS_nolabel_" + image_ids_train[i] + ".png", bbox_inches = 'tight', pad_inches = 0.5)
+        fig.savefig(os.path.join(IMAGE_PATH,"BBOXES_VIS_nolabel_" + image_ids_train[i] + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
         plt.close(fig)
 
 """
@@ -276,7 +277,7 @@ def visualize_compound_training(train_losses, val_losses):
 
     axes[0, 0].legend(runs, loc='upper right')
     axes[0, 1].legend(runs, loc='upper right')
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/compound.png", bbox_inches = 'tight', pad_inches = 0.5)
+    fig.savefig(os.path.join(IMAGE_PATH,"compound.png"), bbox_inches = 'tight', pad_inches = 0.5)
 
 def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName):
     """
@@ -324,7 +325,7 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName):
         axes.text(x1, y1+8, caption, color='b', size=8, backgroundcolor='none')
         rect = patches.Rectangle((x1, y2), x2-x1, y1-y2, linewidth=2, edgecolor=color, facecolor='none', linestyle='-')
         axes.add_patch(rect)
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/RCNN_PREDS_" + imgName + "_" + date + "_.png", bbox_inches = 'tight', pad_inches = 0.5)
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_PREDS_" + imgName + "_" + date + "_.png"), bbox_inches = 'tight', pad_inches = 0.5)
     plt.close()
 
 
@@ -370,7 +371,7 @@ def visualize_predictions_count(class_ids, scores, imgName):
 
     autolabel(rects1, class_counts)
 
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/RCNN_COUNTS_" + imgName + "_" + date + ".png", bbox_inches = 'tight', pad_inches = 0.5)
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_COUNTS_" + imgName + "_" + date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
     plt.close()
 
 def visualize_dataset(dataset):
@@ -421,7 +422,7 @@ def visualize_dataset(dataset):
                 axes.text(x1, y1+8, caption, color='w', size=11, backgroundcolor='none')
                 rect = patches.Rectangle((x1, y2), x2-x1, y1-y2, linewidth=2, edgecolor=color, facecolor='none', linestyle='-')
                 axes.add_patch(rect)
-            fig.savefig(PATH_PREFIX+"graphs/rcnn/RCNN_INPUTS_" + imgName +".png", bbox_inches = 'tight', pad_inches = 0.5)
+            fig.savefig(os.path.join(IMAGE_PATH,"RCNN_INPUTS_" + imgName +".png"), bbox_inches = 'tight', pad_inches = 0.5)
             plt.close()
 
 def visualize_score_histograms(_class_ids, _scores, imgName, nbins=10):
@@ -489,7 +490,7 @@ def visualize_score_histograms(_class_ids, _scores, imgName, nbins=10):
     ax3.set_title('Immature')
     ax3.legend(loc='upper right')
 
-    fig.savefig(PATH_PREFIX+"graphs/rcnn/RCNN_STATS_" + imgName + "_"+ date + ".png", bbox_inches = 'tight', pad_inches = 0.5)
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_STATS_" + imgName + "_"+ date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
     plt.close()
 
 if __name__ == "__main__":
@@ -497,14 +498,14 @@ if __name__ == "__main__":
     config = Config()
     # dataset = Dataset(config.TRAIN_PATH, config, "train")
     # visualize_dataset(dataset)
-    config.TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
-    config.VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
-    train_ids = next(os.walk(config.TRAIN_PATH))[1]
-    val_ids = next(os.walk(config.VAL_PATH))[1]
-    image_paths = [os.path.join(config.TRAIN_PATH, img_name, img_name+'.png') for img_name in train_ids]
-    csv_paths = [os.path.join(config.TRAIN_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in train_ids]
-    image_paths += [os.path.join(config.VAL_PATH, img_name, img_name+'.png') for img_name in val_ids]
-    csv_paths += [os.path.join(config.VAL_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in val_ids]
+    # config.TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
+    # config.VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
+    train_ids = next(os.walk(config.TRAIN_PATH_NOAUG))[1]
+    val_ids = next(os.walk(config.VAL_PATH_NOAUG))[1]
+    image_paths = [os.path.join(config.TRAIN_PATH_NOAUG, img_name, img_name+'.png') for img_name in train_ids]
+    csv_paths = [os.path.join(config.TRAIN_PATH_NOAUG, img_name, 'region_data_'+img_name+'.csv') for img_name in train_ids]
+    image_paths += [os.path.join(config.VAL_PATH_NOAUG, img_name, img_name+'.png') for img_name in val_ids]
+    csv_paths += [os.path.join(config.VAL_PATH_NOAUG, img_name, 'region_data_'+img_name+'.csv') for img_name in val_ids]
     #Now sequentially read the data of the images
     full_class_ids = []
     for image_path, csv_path in zip(image_paths, csv_paths):

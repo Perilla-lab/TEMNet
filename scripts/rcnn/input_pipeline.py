@@ -1,17 +1,9 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 import re, csv, sys
-#import tensorflow, os, re, csv
-#from tensorflow import keras
 import numpy as np
 import tensorflow as tf
-from keras import backend
-#from keras.preprocessing.image import load_img
-#import matplotlib.pyplot as plt 
-#import matplotlib.patches as patches
-
-#import helpers as H
-#from config import Config, Stopwatch
-from config import Stopwatch
+from tensorflow.keras import backend
+#from config import Stopwatch
 
 """
 parse_region_data: Open a CSV for an annotated dataset and parse information to generate RoIs to validate against

@@ -3,7 +3,7 @@ import os, argparse, csv
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 import numpy as np
-from keras.preprocessing.image import load_img, img_to_array
+from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import tensorflow as tf
 
 from model import RCNN
@@ -13,6 +13,8 @@ import visualize as V
 from config import Config, Dataset, Image
 
 print("TensorFlow Version ",tf.__version__)
+
+IMG_FORMAT = ('.tif','.png','.jpg','.jpeg','.bpm','.eps')
 
 def visualize(dataset, config, imgName = 'test'):
   """
@@ -199,7 +201,7 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config):
   #Load image from path
   img_name = img_path.split('/')[-1].split('.')[0] #Take only the number part, that is '/path/to/img/133433.png' -> '133433'
   print(f"Loading image from {img_path}")
-  source_image = np.uint8(img_to_array(load_img(img_path)))
+  source_image = np.uint8(img_to_array(load_img(img_path, color_mode="rgb")))
   #If the image is bigger than the DATASET_SIZE in config proced to crop into smaller images proper to the model
   h, w = source_image.shape[:2]
   if h > config.DATASET_IMAGE_SIZE[0] or w > config.DATASET_IMAGE_SIZE[1]:
@@ -432,14 +434,13 @@ if __name__ == '__main__':
   parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
   parser.add_argument("-m", "--magnification", help="Magnification of the input image for prediction", default=30000, type=int)
   args = parser.parse_args()
-  if(args.path == ''){
+  if(args.path == ''):
       print('\n Please provide a valid path for image prediction.')
       print('Options:\n')
       print("-d", "\t --data", "\t \'single\' or \'multiple\' image prediction")
       print("-p", "\t --path", "\t Path to the image to predict or directory containing images for multiple image prediction")
       print("-b", "\t --backbone", "\t Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model")
       print("-m", "\t --magnification", "\t Magnification of the input image for prediction")
-  }
   config = Config(backbone=args.backbone)
   print(f"Prediction mode: {args.data}")
   print(f"Predicting from: {args.path}")
@@ -454,6 +455,7 @@ if __name__ == '__main__':
   new_crop_step = int(magnification * (base_crop_step/base_magnification) )
   crop_size = (new_crop_size, new_crop_size)
   crop_step = (new_crop_step, new_crop_step)
+
   if(args.data == 'dataset_all'):
     datasets = {"train": Dataset(config.TRAIN_PATH, config, "train"), "validation": Dataset(config.VAL_PATH, config, "validation")}
     avg_mAP_val, mAPs_val = predict_all_rcnn(datasets["validation"], config)
@@ -471,7 +473,7 @@ if __name__ == '__main__':
   elif(args.data=='dataset_random'):
     dataset = Dataset(config.VAL_PATH, config, "validation")
     visualize(dataset, config, args.data)
-  elif(args.data == 'train_val_noaug_dataset'):
+  elif(args.data == 'dataset_noaug'):
     #Build image paths
     # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
     # VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
@@ -487,8 +489,6 @@ if __name__ == '__main__':
     #Sequentially predict on the uncropped images and store their class ids
     #Predict for both Train and Validation sets
     avg_mAP_train, mAPs_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train, fp_counts_train = predict_all_uncropped(image_paths_train, csv_paths_train, crop_size, crop_step, config)
-    #V.visualize_predictions_count(class_ids_train, scores_train, f'train_dataset_window_{crop_size[0]}')
-    #V.visualize_score_histograms(np.array(class_ids_train), np.array(scores_train), f'train_dataset_window_{crop_size[0]}')
     write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, fp_counts_train)
     avg_mAP_val, mAPs_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val, fp_counts_val = predict_all_uncropped(image_paths_val, csv_paths_val, crop_size, crop_step, config)
     #V.visualize_predictions_count(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
@@ -509,14 +509,17 @@ if __name__ == '__main__':
     print(f"COMPLETE avg mAP: {np.mean(mAPs_train+mAPs_val)}")
   elif(args.data == 'multiple'):
     #Build image paths
-    # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/nov_dataset'
+    # IMAGES_PATH = '/scratch/07655/jsreyl/imgs/nov_dataset'
     IMAGES_PATH = args.path
+    print(IMAGES_PATH)
     # Read images from train and validation:
     images_ids = next(os.walk(IMAGES_PATH))[2]#All file names in IMAGES_PATH
-    image_paths_train = [os.path.join(IMAGES_PATH, img_name) for img_name in images_ids if img_name.endswith('.png')]
+    image_paths_train = [os.path.join(IMAGES_PATH, img_name) for img_name in images_ids if img_name.endswith(IMG_FORMAT)]
     if(len(image_paths_train)==0):#No images found? Search directory-wise, i.e. /path/07655/07655.png
       images_ids = next(os.walk(IMAGES_PATH))[1]#All folder names in IMAGES_PATH
-      image_paths_train = [os.path.join(IMAGES_PATH, img_name, img_name+'.png') for img_name in images_ids]
+      for img_fmt in IMG_FORMAT:
+        image_paths_train += [os.path.join(IMAGES_PATH, img_name, img_name+img_fmt) for img_name in images_ids if img_name.endswith(img_fmt)]
+
     #Predict for both Train and Validation sets
     for image_path in image_paths_train:
         imgName = image_path.split('/')[-1].split('.')[0]
