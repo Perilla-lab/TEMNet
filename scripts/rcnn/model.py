@@ -1,16 +1,16 @@
-import os, sys
-import keras.layers as KL
-import keras.models as KM
-import keras.optimizers as KO
-import keras.regularizers as KR
-from keras import backend
+import os, sys, argparse
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.eager import context #To check whether we're executing eagerly or not
 #tf.compat.v1.enable_eager_execution()
-import numpy as np
-from keras.callbacks import ModelCheckpoint
-from keras.callbacks import Callback
-from keras.callbacks import ReduceLROnPlateau
+import tensorflow.keras.layers as KL
+import tensorflow.keras.models as KM
+import tensorflow.keras.optimizers as KO
+import tensorflow.keras.regularizers as KR
+from tensorflow.keras import backend
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.callbacks import Callback
+from tensorflow.keras.callbacks import ReduceLROnPlateau
 
 import helpers as H
 import input_pipeline as I
