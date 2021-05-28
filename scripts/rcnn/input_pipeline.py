@@ -848,9 +848,10 @@ def compose_image_data(image_name, original_image_shape, image_shape):
     crop_id = 0
     aug_id = 0
     image_id = image_name
+    image_id = int(image_name) if image_name.isnumeric() else ord(image_name[-1])
     metadata = image_name.split('-')
     if len(metadata)>=2:
-        image_id = metadata[0]
+        image_id = int(metadata[0]) if metadata[0].isnumeric() else ord(metadata[0][-1])
         crop_id = ''.join(filter(lambda i: i.isdigit(), metadata[1])) #get the crop number from string 'crop##'
         # print(crop_id)
         if len(metadata)>3:

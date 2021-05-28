@@ -12,6 +12,24 @@ from tensorflow.keras.preprocessing.image import img_to_array, load_img
 PATH_PREFIX = os.path.abspath(os.path.join(os.getcwd(), os.pardir, os.pardir))
 IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn')                     # PATH FOR GENERAL IMG SETS
 
+def fig2data ( fig ):
+    """
+    @brief Convert a Matplotlib figure to a 4D numpy array with RGBA channels and return it
+    @param fig a matplotlib figure
+    @return a numpy 3D array of RGBA values
+    """
+    # draw the renderer
+    fig.canvas.draw ( )
+
+    # Get the RGBA buffer from the figure
+    w,h = fig.canvas.get_width_height()
+    buf = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
+    buf.shape = (w,h,4)
+
+    # canvas.tostring_argb give pixmap in ARGB mode. Roll the ALPHA channel to have it in RGBA mode
+    buf = np.roll (buf, 3,axis = 2)
+    return buf
+
 """
 visualize_rpn_predictions: Self explanatory
 Inputs:
@@ -279,7 +297,7 @@ def visualize_compound_training(train_losses, val_losses):
     axes[0, 1].legend(runs, loc='upper right')
     fig.savefig(os.path.join(IMAGE_PATH,"compound.png"), bbox_inches = 'tight', pad_inches = 0.5)
 
-def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName):
+def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName, save_fig=True):
     """
     Saves an image of the rcnn predictions displaying the boxes along with their classes and scores
     Inputs:
@@ -288,8 +306,12 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName):
       class_ids: array of predicted classes for the boxes
       scores: array of predicted probabilities for the box classification
       imgName: name of the image
+      save_fig: Whether to save or not the generated figure
     Outputs:
-      None, uses matplotlib to save an image
+      if save_fig:
+        None, uses matplotlib to save an image
+      else:
+        img: 3d RGBA numpy matrix representation of the image
     """
     # print(f"Image: {image}")
     # print(f"Boxes: {boxes}")
@@ -305,8 +327,9 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName):
     fig, axes = plt.subplots()
     #plt.tight_layout()
     plt.axis('off')
+    plt.tight_layout()
     axes.imshow(image)
-    axes.set_title("RCNN predictions")
+    # axes.set_title("RCNN predictions")
     print("Source image displayed without errors")
     print(f"Boxes length: {boxes.shape}")
     for i, box, class_id, score in zip(range(boxes.shape[0]), boxes, class_ids, scores):
@@ -325,8 +348,14 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName):
         axes.text(x1, y1+8, caption, color='b', size=8, backgroundcolor='none')
         rect = patches.Rectangle((x1, y2), x2-x1, y1-y2, linewidth=2, edgecolor=color, facecolor='none', linestyle='-')
         axes.add_patch(rect)
-    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_PREDS_" + imgName + "_" + date + "_.png"), bbox_inches = 'tight', pad_inches = 0.5)
-    plt.close()
+    if save_fig:
+        fig.savefig(os.path.join(IMAGE_PATH,"RCNN_PREDS_" + imgName + "_" + date + "_.png"), bbox_inches = 'tight')#, pad_inches = 0.5)
+        plt.close()
+        return None
+    else:
+        img = fig2data(fig)
+        plt.close()
+        return img
 
 
 def visualize_predictions_count(class_ids, scores, imgName):

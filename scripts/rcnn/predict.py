@@ -145,7 +145,7 @@ def predict(config, imgName, image_gt, image_meta, image_anchors):
   V.visualize_rpn_predictions(np.uint8(image_gt), sorted_anchors, imgName)
   return sorted_anchors
 
-def predict_one_image(img_paths, config):
+def predict_one_image(img_paths, config, save_fig):
   """
   predict_one_image: Predicts on a single image passed through a path
   Inputs:
@@ -165,6 +165,7 @@ def predict_one_image(img_paths, config):
   overall_class_ids = []
   overall_scores = []
   overall_boxes = []
+  pred_imgs = []
   for i in range(len(images)):#For every image read from the parsed paths
     inputs = images[i]
     image_batch = inputs[0]
@@ -180,28 +181,33 @@ def predict_one_image(img_paths, config):
       pred_boxes[pred_boxes < 0.] = 0.
       pred_boxes[pred_boxes>image_batch[j].shape[0]] = image_batch[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
-      V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], imgNames[j])
+      pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], imgNames[j], save_fig)
+      pred_imgs.append(pred_img)
       overall_class_ids += list(pred["class_ids"])
       overall_scores += list(pred["scores"])
       overall_boxes += list(pred_boxes)
-  return overall_boxes, overall_class_ids, overall_scores
+  return overall_boxes, overall_class_ids, overall_scores, pred_imgs
 
 #TODO: modify predict_uncropped_image so the window/crops data are generated in a class instead of inside this function, use Image class implementation as a guide
-def predict_uncropped_image(img_path, crop_size, crop_step, config):
+def predict_uncropped_image(img_path, crop_size, crop_step, config, save_fig=True):
   """
   predict_uncropped_image: Build predictions on an uncropped image by creating a set of cropped images to represent it, predicting on those and then uniting all predictions onto the original image coordinates
   INPUTS:
       img_path: path to read the image from
       config: Config class instance with the batch_size and dataset image size
   OUTPUTS:
-      None, uses matplotlib to save an image with the preditions drawn on top
+      if save_img == True:
+         None, uses matplotlib to save an image with the preditions drawn on top
+      else:
+         pred_img, the image with the predictions
+
   """
   rcnn = RCNN(config, 'inference')
   rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
   #Load image from path
   img_name = img_path.split('/')[-1].split('.')[0] #Take only the number part, that is '/path/to/img/133433.png' -> '133433'
   print(f"Loading image from {img_path}")
-  source_image = np.uint8(img_to_array(load_img(img_path, color_mode="rgb")))
+  source_image = np.uint8(img_to_array(load_img(img_path)))
   #If the image is bigger than the DATASET_SIZE in config proced to crop into smaller images proper to the model
   h, w = source_image.shape[:2]
   if h > config.DATASET_IMAGE_SIZE[0] or w > config.DATASET_IMAGE_SIZE[1]:
@@ -286,13 +292,13 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config):
     print(f"Final number of detections: {len(all_pred_boxes)}")
     print(f"Final number of detections after nms: {len(nms_pred_boxes)}")
     # V.visualize_rcnn_predictions(source_image, all_pred_boxes, all_pred_class_ids, all_pred_scores, img_name)
-    V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, img_name)
+    pred_image = V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, img_name, save_fig)
     V.visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, img_name)
     #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
-    return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores
+    return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, pred_image
   else:
-    one_boxes, one_class_ids, one_scores = predict_one_image([img_path], config)
-    return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores)
+    one_boxes, one_class_ids, one_scores, oneimg = predict_one_image([img_path], config, save_img)
+    return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores), np.array(one_img)
 
 def crop_image(image, crop_size, starting_point):
   """
@@ -369,7 +375,7 @@ def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config):
     gt_boxes = np.array(gt_boxes).astype('int32')
     gt_class_ids=I.change_label_to_num(gt_labs, config.CLASS_INFO)
     #Now predict
-    pred_boxes, pred_class_ids, pred_scores = predict_uncropped_image(img_path, crop_size, crop_step, config)
+    pred_boxes, pred_class_ids, pred_scores, _ = predict_uncropped_image(img_path, crop_size, crop_step, config)
     #And calculate the mAP between gt and pred
     if len(pred_boxes) != 0:
       mAP, _, _, _, fp_count = I.compute_mAP(gt_boxes, gt_class_ids, pred_boxes, pred_class_ids, pred_scores)
@@ -518,15 +524,15 @@ if __name__ == '__main__':
     if(len(image_paths_train)==0):#No images found? Search directory-wise, i.e. /path/07655/07655.png
       images_ids = next(os.walk(IMAGES_PATH))[1]#All folder names in IMAGES_PATH
       for img_fmt in IMG_FORMAT:
-        image_paths_train += [os.path.join(IMAGES_PATH, img_name, img_name+img_fmt) for img_name in images_ids if img_name.endswith(img_fmt)]
+        image_paths_train += [os.path.join(IMAGES_PATH, img_name, img_name+img_fmt) for img_name in images_ids]
 
     #Predict for both Train and Validation sets
     for image_path in image_paths_train:
         imgName = image_path.split('/')[-1].split('.')[0]
         #img_names.append(imgName)
-        _, pred_class_ids, pred_scores = predict_uncropped_image(image_path, crop_size, crop_step, config)
+        _, pred_class_ids, pred_scores, _ = predict_uncropped_image(image_path, crop_size, crop_step, config)
   elif(args.data == 'single'):
     imgName = args.path.split('/')[-1].split('.')[0]
     print(f"Predicting with crop size: {crop_size} and crop step {crop_step}")
-    _, pred_class_ids, pred_scores = predict_uncropped_image(args.path, crop_size, crop_step, config)
+    _, pred_class_ids, pred_scores, _ = predict_uncropped_image(args.path, crop_size, crop_step, config)
     #V.visualize_score_histograms(np.array(pred_class_ids), np.array(pred_scores), f'{imgName}_window_{crop_size[0]}')

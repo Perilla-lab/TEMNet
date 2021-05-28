@@ -48,7 +48,9 @@ class Config(object):
     IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn')                     # PATH FOR GENERAL IMG SETS
     #Weight sets for different backbones
     WEIGHT_SET_DICT = {
-        'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
+        # 'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
+        'temnet': WEIGHT_PATH + '/rcnn_novel_weights.06_aug_gn_fpn2620_res512_wt_full.hdf5',
+        # 'temnet': WEIGHT_PATH + '/rcnn_novel_weights.40_aug_gn_fpn2620_res512_full.hdf5',
         'resnet101': WEIGHT_PATH + '/rcnn_resnet101_weights_res512.hdf5',
         'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_res512.hdf5'
     }
