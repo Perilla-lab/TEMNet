@@ -1,25 +1,33 @@
 # TEMNet. HIV-1 Particle Scan Classifier Network
 ##### University of Delaware Apr 2021
 ##### Perilla Labs Research Group
-##### Juan S. Rey, Hagan Beatson, Christian Lantz, Alex Bryer, Juan R. Perilla
+##### Juan S. Rey, Hagan Beatson, Christian Lantz, Alex Bryer, Juan Perilla
 
 ## Introduction
 TEMNet is a CNN backbone designed for viral particle detection from TEM micrographs. TEMNet works as the backbone for a Faster RCNN implementation used for viral instance detection and classification.
 ![Faster RCNN and TEMNet architectures](/graphs/RCNN_TEMNet.png)
 
-![HIV-1 TEM micrograph](/graphs/samples/1797001.png)
-![HIV-1 predicted TEM micrograph](/graphs/rcnn/RCNN_PREDS_1797001_05_24_10_16_.png)
-![HIV-1 predicted histogram](/graphs/rcnn/RCNN_COUNTS_1797001_05_24_10_16.png)
+![TEMNet procedure](/graphs/TEMNet_procedure.png)
 
 ## Getting Started
 TEMNet is built using **Tensorflow** and **Keras** version 2.1, **OpenCV** is an optional dependency used for image augmentation.
 Important scripts for model definition, training and inference procedures are stored in the **'scripts'** directory. 
+The GUI app implementation can be found under **'scripts/app'** and built using pyinstaller.
 TEMNet and other convolutional backbones (ResNet, Inception, VGG) can be pretrained using the **pretraining** scripts. Be sure to change the Config class in classes.py to your preferences.
+
+## TEMNet GUI
+![TEMNet GUI](/graphs/TEMNet_GUI.png)
+TEMNet now offers a User Interface, just upload your TEM micrographs, click predict and save your results without having to open a terminal or go through the code.
+Download the GUI from:
+[<img src="https://linuxfoundation.org/wp-content/uploads/linux.svg" alt="Linux Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=SlTA&id=1mCACQs_RszHeo21-IGCn_sD7CXNGSvGb)
+Simply download the file, uncompress it and run the executable **./TEMNet** !
+_Windows binaries incoming!_
+
 
 ## Installation
 1. (Recommended) Create a python virtual environment for installing this project's dependencies
 ```
-python3 -m venv --system-site-packages ./temnet-env
+python3 -m venv ./temnet-env
 ```
 and activate it
 ```
@@ -54,7 +62,7 @@ python3 train.py -b [backbone_name]
 to train other architectures please provide the proper pretraining weights. Weights for every epoch are stored on **/weights/**.
 
 ## Running Prediction Procedures
-Prediction requires trained weights for a given backbone. We have provided weights for TEMNet, ResNet101 and ResNet101v2 which can be downloaded using the script in the **/weights/** directory.
+Prediction requires trained weights for a given backbone. We have provided weights and precompiled models for TEMNet, ResNet101 and ResNet101v2 which can be downloaded using the script in the **/weights/** directory.
 The predict.py script in **/scripts/rcnn/** handles prediction for individual images
 ```
 python3 predict.py -d 'single' -p '/path/to/image.png' -b [backbone_name]

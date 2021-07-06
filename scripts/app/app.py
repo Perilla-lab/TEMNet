@@ -1,9 +1,10 @@
-import os, sys
+import os, sys, csv
 from tkinter import *
 from tkinter import filedialog as fd
 from PIL import Image, ImageTk
 import webbrowser
-sys.path.append(os.path.abspath(os.path.join('..', 'rcnn')))
+import tensorflow as tf
+# sys.path.append(os.path.abspath(os.path.join('..', 'rcnn')))
 from config import Config
 import predict as P
 
@@ -27,15 +28,63 @@ FRAME_COLOR = "#67BCC2"
 BG_COLOR = "#C1DADB"
 
 def callback(url):
-    webbrowser.open_new_tab(url)
+    """
+    Opens a url on the browser. It tries the most popular browsers in sequential order or prints an error.
+    """
+    try:
+        webbrowser.get('firefox').open_new_tab(url)
+    except webbrowser.Error:
+        try:
+            webbrowser.get('chrome').open_new_tab(url)
+        except webbrowser.Error:
+            try:
+                webbrowser.get('safari').open_new_tab(url)
+            except webbrowser.Error:
+                try:
+                    webbrowser.get('opera').open_new_tab(url)
+                except webbrowser.Error:
+                    try:
+                        webbrowser.get('chromium').open_new_tab(url)
+                    except webbrowser.Error:
+                            print(f'No browser found, please install firefox or chrome and open {url}')
 
-def save_imgs(images, backbone):
+def write_counts_csv(csvname, img_names, counts):
+  with open(csvname, mode='w', newline='') as labels:
+    fields = ['filename',
+              'eccentric',
+              'mature',
+              'immature']
+
+    writer = csv.DictWriter(labels,
+                            fieldnames=fields,
+                            dialect='excel',
+    quoting=csv.QUOTE_MINIMAL)
+
+    writer.writeheader()
+    for i in range(len(counts)):
+      writer.writerow({'filename': img_names[i],
+                       'eccentric': counts[i][0],
+                       'mature': counts[i][1],
+                       'immature': counts[i][2]
+      })
+
+def save_imgs(images, counts, img_names, backbone):
+    """
+    Saves images to a directory.
+    """
     dirname = fd.askdirectory(title="Select where to save your data")
     for i, img in enumerate(images):
         if img.mode != "RGB": img = img.convert("RGB")
-        img.save(os.path.join(dirname,'rcnn_preds_'+backbone+'_'+str(i)+'.png'))
+        if i%2:
+            img.save(os.path.join(dirname,'rcnn_counts_'+backbone+'_'+str(img_names[i//2])+'.png'), dpi=(300,300))
+        else:
+            img.save(os.path.join(dirname,'rcnn_preds_'+backbone+'_'+str(img_names[i//2])+'.png'), dpi=(300,300))
+    write_counts_csv(os.path.join(dirname, 'rcnn_preds_'+backbone+'.csv'), img_names, counts)
 
 def display_textbox(content, row, col, window):
+    """
+    Creates a textbox at a given row and column of the GUI with text content.
+    """
     text_box = Text(root, height=1, width=30, padx=10, pady=10)
     text_box.insert(1.0, content)
     # text_box.tag_configure("center", justify="center")
@@ -43,17 +92,26 @@ def display_textbox(content, row, col, window):
     text_box.grid(column=col, row=ro, sticky=W, padx=25, pady=25)
 
 def extract_path(textvar):
+    """
+    Sets a text variable as the path to a file chosen by the user
+    """
     filename = fd.askopenfilename(title="Select your weights")
     textvar.set(filename)
     print(textvar.get())
 
 def extract_dir(textvar):
+    """
+    Sets a text variable as the path to a directory chosen by the user
+    """
     dirname = fd.askdirectory(title="Select your data")
     textvar.set(dirname)
     print(textvar.get())
 
 
 def resize_img(img):
+    """
+    Resizes a Pillow Image to a width and height fit for displaying in the GUI (usually h=300, w=350 or the closes to this)
+    """
     width, height = int(img.size[0]), int(img.size[1])
     if width > height:
         height = int(350/width*height)
@@ -67,6 +125,9 @@ def resize_img(img):
     return img
 
 def display_image(img, row, column, rowspan=1, columnspan=1, padx=0, pady=0):
+    """
+    Displays an Pillow image in a specific row and column of the GUI
+    """
     img = resize_img(img)
     frame = Frame(main, width=img.size[0]+25, height=img.size[1]+25, bg=FRAME_COLOR)
     frame.grid(columnspan=columnspan, rowspan=rowspan, row=row, column=column)
@@ -86,6 +147,10 @@ def display_button(url, row, column, sticky=None, funct=None):
     img_label.grid(column=column, row=row, sticky=sticky)
 
 def open_images(data_string, textvar):
+    """
+    Retrieves a single image or a set of images from a path textvar and displays them in the GUI.
+    Also updates global image lists and displays the new images.
+    """
     global SRC_IMGS
     global SRC_IMG_IX
     global SRC_IMG_DISP
@@ -136,6 +201,9 @@ def open_images(data_string, textvar):
     SRC_IMG_DISP, SRC_IMG_FRAME = display_image(img, row=1 ,column=4,rowspan=3, columnspan=4)
 
 def arrow_src(images, mode='right'):
+    """
+    Changes the source image to the one next or before in the image array
+    """
     global SRC_IMG_IX
     global SRC_IMG_DISP
     global SRC_IMG_FRAME
@@ -147,6 +215,9 @@ def arrow_src(images, mode='right'):
     SRC_IMG_COUNTER_TEXT.set("Source image "+ str(SRC_IMG_IX + 1) + " of "+str(len(images)))
 
 def arrow_pred(images, mode='right'):
+    """
+    Changes the predicted image to the one next or before in the image array
+    """
     global PRED_IMG_IX
     global PRED_IMG_DISP
     global PRED_IMG_FRAME
@@ -158,6 +229,9 @@ def arrow_pred(images, mode='right'):
     PRED_IMG_COUNTER_TEXT.set("Processed image "+ str(PRED_IMG_IX + 1) + " of "+str(len(images)))
 
 def right_arrow(all_images, img_idx, img_disp, frame):
+    """
+    Changes the display image to the one next to the inputed index
+    """
     img_idx = (img_idx + 1)%len(all_images)
     info = img_disp.grid_info()
     img_disp.grid_forget()
@@ -166,6 +240,9 @@ def right_arrow(all_images, img_idx, img_disp, frame):
     return img_idx, img_disp, frame
 
 def left_arrow(all_images, img_idx, img_disp, frame):
+    """
+    Changes the display image to the one before to the inputed index
+    """
     img_idx = (img_idx - 1)%len(all_images)
     info = img_disp.grid_info()
     img_disp.grid_forget()
@@ -174,16 +251,26 @@ def left_arrow(all_images, img_idx, img_disp, frame):
     return img_idx, img_disp, frame
 
 def predict(data='single', path='./assets/sample.png', backbone='temnet', magnification=3000):
+    """
+    Loads a model according to the backbone required and predicts on all the images loaded.
+    Then displayes the processed images with labeled predictions.
+    """
     global PRED_IMGS
     global PRED_IMG_IX
     global PRED_IMG_DISP
     global PRED_IMG_COUNTER_TEXT
     global PRED_IMG_FRAME
+    global PRED_IMG_NAMES
+    global PRED_IMG_COUNTS
     config = Config(backbone=backbone)
+    rcnn_loaded = tf.keras.models.load_model(os.path.join(os.getcwd(),backbone))
+    rcnn_loaded.summary()
     #Reset pred image variables when generating a new prediction
     PRED_IMG_IX = 0
     PRED_IMGS = []
     pred_imgs = []
+    PRED_IMG_NAMES = []
+    PRED_IMG_COUNTS = []
     print("Reading from: ", path)
     base_magnification = config.BASE_MAGNIFICATION
     base_crop_size = config.BASE_CROP_SIZE
@@ -194,8 +281,13 @@ def predict(data='single', path='./assets/sample.png', backbone='temnet', magnif
     crop_step = (new_crop_step, new_crop_step)
     if(data == 'single'):
         print(f"Predicting with crop size: {crop_size} and crop step {crop_step}")
-        _, _, _, pred_img = P.predict_uncropped_image(path, crop_size, crop_step, config, save_fig=False)
-        pred_imgs.append(pred_img)
+        img_name = path.split('/')[-1].split('.')[0] #Take only the number part, that is '/path/to/img/133433.png' -> '133433'
+        _, class_ids, scores, pred_img = P.predict_uncropped_image(path, crop_size, crop_step, config, rcnn_loaded, save_fig=False)
+        count_img, class_counts = P.visualize_predictions_count(class_ids, scores, img_name, save_fig=False)
+        pred_imgs.extend([pred_img, count_img])
+        PRED_IMG_NAMES.append(img_name)
+        PRED_IMG_COUNTS.append(class_counts)
+
     elif(data == 'multiple'):
         #Build image paths
         IMAGES_PATH = path
@@ -213,8 +305,13 @@ def predict(data='single', path='./assets/sample.png', backbone='temnet', magnif
 
         #Predict for every image in the set
         for image_path in image_paths_train:
-            _, _, _, pred_img = P.predict_uncropped_image(image_path, crop_size, crop_step, config, save_fig=False)
-            pred_imgs.append(pred_img)
+            img_name = image_path.split('/')[-1].split('.')[0] #Take only the number part, that is '/path/to/img/133433.png' -> '133433'
+            # _, _, _, pred_img = P.predict_uncropped_image(image_path, crop_size, crop_step, config, rcnn_loaded, save_fig=False)
+            _, class_ids, scores, pred_img = P.predict_uncropped_image(image_path, crop_size, crop_step, config, rcnn_loaded, save_fig=False)
+            count_img, class_counts = P.visualize_predictions_count(class_ids, scores, img_name, save_fig=False)
+            pred_imgs.extend([pred_img,count_img])
+            PRED_IMG_NAMES.append(img_name)
+            PRED_IMG_COUNTS.append(class_counts)
     #Prediction arrays should be filled
     #Now make the numpy arrays into PIL Images
     for pred_img in pred_imgs:
@@ -243,6 +340,8 @@ PRED_IMG_IX = 0
 PRED_IMG_DISP = None
 PRED_IMG_COUNTER_TEXT = StringVar()
 PRED_IMG_FRAME = None
+PRED_IMG_NAMES = []
+PRED_IMG_COUNTS = []
 
 main.title("TEMNet")
 main.geometry('+%d+%d'%(350,10)) #place GUI at x=350, y=10
@@ -272,46 +371,50 @@ backbone.set(BACKBONES[0])
 backbone_menu = OptionMenu(main, backbone, *BACKBONES)
 backbone_menu.grid(column = 1, columnspan=2, row=3, sticky=W, padx=15, pady=10)
 
-weights_lbl = Label(main, text="Weights:", font=DEFAULT_FONT,bg=BG_COLOR)
-weights_lbl.grid(column = 0, columnspan=1, row=4, sticky=W, padx=35, pady=10)
-weights_path = StringVar(main)
-weights_path.set('')
-weights_textbox = Entry(main, textvariable=weights_path)
-weights_textbox.grid(column = 1, columnspan=1, row=4, sticky=W, padx=15, pady=10)
-display_button('./assets/browse.png',row=4,column=3, sticky=W, funct=lambda:extract_path(weights_path))
+# weights_lbl = Label(main, text="Weights:", font=DEFAULT_FONT,bg=BG_COLOR)
+# weights_lbl.grid(column = 0, columnspan=1, row=4, sticky=W, padx=35, pady=10)
+# weights_path = StringVar(main)
+# weights_path.set('')
+# weights_textbox = Entry(main, textvariable=weights_path)
+# weights_textbox.grid(column = 1, columnspan=1, row=4, sticky=W, padx=15, pady=10)
+# display_button('./assets/browse.png',row=4,column=3, sticky=W, funct=lambda:extract_path(weights_path))
 
 
 data_lbl = Label(main, text="Images:", font=DEFAULT_FONT,bg=BG_COLOR)
-data_lbl.grid(column = 0, columnspan=1, row=5, sticky=W, padx=35, pady=10)
+data_lbl.grid(column = 0, columnspan=1, row=4, sticky=W, padx=35, pady=10)
 data_path = StringVar(main)
 data_path.set('')
 data_textbox = Entry(main, textvariable=data_path)
-data_textbox.grid(column = 1, columnspan=1, row=5, sticky=W, padx=15, pady=10)
+data_textbox.grid(column = 1, columnspan=1, row=4, sticky=W, padx=15, pady=10)
 data_string = StringVar(main)
 data_string.set(DATA[0])
 data_menu = OptionMenu(main, data_string, *DATA)
-data_menu.grid(column = 2, columnspan=1, row=5, sticky=W, padx=15, pady=10)
+data_menu.grid(column = 2, columnspan=1, row=4, sticky=W, padx=15, pady=10)
 # display_button('./assets/browse.png',row=5,column=3, sticky=W, funct=lambda: extract_dir(data_path) if data_string.get()=='multiple' else extract_path(data_path))
-display_button('./assets/browse.png',row=5,column=3, sticky=W,
+display_button('./assets/browse.png',row=4,column=3, sticky=W,
                funct=lambda: open_images(data_string.get(), data_path))
 
 
 magnification_lbl = Label(main, text="Magnification:", font=DEFAULT_FONT,bg=BG_COLOR)
-magnification_lbl.grid(column = 0, columnspan=1, row=6, sticky=W, padx=35, pady=10)
+magnification_lbl.grid(column = 0, columnspan=1, row=5, sticky=W, padx=35, pady=10)
 magnification_val = StringVar(main)
 magnification_val.set('30000')
 magnification_textbox = Entry(main, textvariable=magnification_val)
-magnification_textbox.grid(column = 1, columnspan=1, row=6, sticky=W, padx=15, pady=10)
+magnification_textbox.grid(column = 1, columnspan=1, row=5, sticky=W, padx=15, pady=10)
 
 predict_btn = Button(main, text="PREDICT!",
                   command=lambda: predict(data_string.get(), data_path.get(), backbone.get(), int(magnification_val.get())),
                   font=("Raleway",16, 'bold'), bg=BUTTON_COLOR, fg="white", height=2, width=25)
-predict_btn.grid(column=0, row=7, columnspan=2, padx=10, pady=00)
+predict_btn.grid(column=0, row=6, columnspan=2, padx=10, pady=00)
 
 save_btn = Button(main, text="SAVE IMAGES!",
-                  command=lambda: save_imgs(PRED_IMGS, backbone.get()),
+                  command=lambda: save_imgs(PRED_IMGS, PRED_IMG_COUNTS, PRED_IMG_NAMES, backbone.get()),
                   font=BUTTON_FONT, bg=BUTTON_COLOR, fg="white", height=1, width=15)
-save_btn.grid(column=2, row=7, columnspan=2, padx=10, pady=00)
+save_btn.grid(column=2, row=6, columnspan=2, padx=10, pady=00)
+
+
+copyright_lbl = Label(main, text="Juan Rey, Alex Bryer, Hagan Beatson, Christian Lantz, Juan Perilla \n Perilla Labs (c) University of Delaware 2021, Apache-2.0 License", font=('shanti', 10, 'italic'),bg=BG_COLOR)
+copyright_lbl.grid(column = 0, columnspan=3, row=7, sticky=E, padx=15, pady=10)
 
 #Acknowledgements
 ud_logo = Image.open('./assets/Logos.png')
@@ -324,7 +427,6 @@ ud_lbl = Label(main, image=ud_logo, text="UD", font=("arial", 20), bg=BG_COLOR)
 ud_lbl.grid(columnspan=1, rowspan=2, row=0, column=0, pady=15)
 
 
-# github_logo = Image.open('./assets/GitHub-Emblem.png')
 repo_lbl = Label(main, text="Source Code!", font=("shanti", 10,'bold'), bg=BG_COLOR)
 repo_lbl.grid(columnspan=1, rowspan=1, row=0, column=2, sticky=S, pady=0, padx=15)
 github_logo = Image.open('./assets/github-512.webp')

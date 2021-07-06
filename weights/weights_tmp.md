@@ -5,3 +5,5 @@ You can download prediction-ready weights for the TEMNet, ResNet101 and ResNet10
 bash download_weights.sh
 ```
 or you can download them manually from [here!](https://drive.google.com/drive/folders/1xVI2fNImtZ3lKu9vZOEjCVKcpEWb3p_7?usp=sharing)
+
+You can also download precompiled models [here!](https://drive.google.com/drive/folders/1adwCFxLSpsOyFnqaSv2gh6pKIpbJ9vTP?usp=sharing)

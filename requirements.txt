@@ -2,3 +2,5 @@ numpy
 tensorflow>=2.1
 keras
 opencv-python
+pillow
+matplotlib
