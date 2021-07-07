@@ -1,4 +1,5 @@
 import os, sys, csv
+from pathlib import Path
 from tkinter import *
 from tkinter import filedialog as fd
 from PIL import Image, ImageTk
@@ -49,6 +50,8 @@ def callback(url):
                             print(f'No browser found, please install firefox or chrome and open {url}')
 
 def write_counts_csv(csvname, img_names, counts):
+  csvname = Path(csvname)
+  csvname.parent.mkdir(parents=True, exist_ok=True)
   with open(csvname, mode='w', newline='') as labels:
     fields = ['filename',
               'eccentric',
@@ -72,14 +75,22 @@ def save_imgs(images, counts, img_names, backbone):
     """
     Saves images to a directory.
     """
-    dirname = fd.askdirectory(title="Select where to save your data")
+    initialdir = str(Path.home()/'Downloads') if 'win' in sys.platform else None #Windows is stupid with read write directions so files can only be saved to Downloads, target this as the initial folder
+    dirname = fd.askdirectory(title="Select where to save your data", initialdir=initialdir)
+    write_counts_csv(os.path.normpath(os.path.join(dirname, 'rcnn_preds_'+backbone+'.csv')), img_names, counts)
     for i, img in enumerate(images):
         if img.mode != "RGB": img = img.convert("RGB")
         if i%2:
-            img.save(os.path.join(dirname,'rcnn_counts_'+backbone+'_'+str(img_names[i//2])+'.png'), dpi=(300,300))
+            save_name = 'rcnn_counts_'+backbone+'_'+str(img_names[i//2])+'.png'
         else:
-            img.save(os.path.join(dirname,'rcnn_preds_'+backbone+'_'+str(img_names[i//2])+'.png'), dpi=(300,300))
-    write_counts_csv(os.path.join(dirname, 'rcnn_preds_'+backbone+'.csv'), img_names, counts)
+            save_name = 'rcnn_preds_'+backbone+'_'+str(img_names[i//2])+'.png'
+#        with open(os.path.normpath(os.path.join(dirname,save_name), 'w') as write_file:
+        try:
+            print(save_name)
+            img.save(save_name, dpi=(300,300))
+        except PermissionError as e:
+            print(save_name)
+            img.save(dirname+'/'+save_name, dpi=(300,300))            
 
 def display_textbox(content, row, col, window):
     """
@@ -305,7 +316,8 @@ def predict(data='single', path='./assets/sample.png', backbone='temnet', magnif
 
         #Predict for every image in the set
         for image_path in image_paths_train:
-            img_name = image_path.split('/')[-1].split('.')[0] #Take only the number part, that is '/path/to/img/133433.png' -> '133433'
+            # img_name = image_path.split('/')[-1].split('.')[0] #Take only the number part, that is '/path/to/img/133433.png' -> '133433'
+            img_name = os.path.basename(image_path).split('.')[0] #Take only the number part, that is '/path/to/img/133433.png' -> '133433'
             # _, _, _, pred_img = P.predict_uncropped_image(image_path, crop_size, crop_step, config, rcnn_loaded, save_fig=False)
             _, class_ids, scores, pred_img = P.predict_uncropped_image(image_path, crop_size, crop_step, config, rcnn_loaded, save_fig=False)
             count_img, class_counts = P.visualize_predictions_count(class_ids, scores, img_name, save_fig=False)

@@ -21,12 +21,13 @@ TEMNet and other convolutional backbones (ResNet, Inception, VGG) can be pretrai
 ## TEMNet GUI
 ![TEMNet GUI](/graphs/TEMNet_GUI.png)
 TEMNet now offers a User Interface, just upload your TEM micrographs, click predict and save your results without having to open a terminal or go through the code.
-Download the GUI from:
+Download the GUI from (click the logos):
 
  - Linux: [<img src="https://linuxfoundation.org/wp-content/uploads/linux.svg" alt="Linux Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=SlTA&id=1mCACQs_RszHeo21-IGCn_sD7CXNGSvGb)
- - Windows: _Windows binaries incoming!_
+ - Windows: [<img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Windows_10_Logo.svg" alt="Windows Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=QAVe&id=16K15fO53NTx76OBWWQBHvHHri0qWfmN2)
+ - Mac: _Mac binaries incoming!_
 
-Simply download the file, uncompress it and run the executable **./TEMNet** !
+Simply download the file, uncompress it and run the executable **./TEMNet** (Linux), **TEMNet.exe**(Windows)!
 
 
 ## Installation
