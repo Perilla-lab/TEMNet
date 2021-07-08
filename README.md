@@ -24,7 +24,7 @@ TEMNet now offers a User Interface, just upload your TEM micrographs, click pred
 Download the GUI from (click the logos):
 
  - Linux: [<img src="https://linuxfoundation.org/wp-content/uploads/linux.svg" alt="Linux Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=SlTA&id=1mCACQs_RszHeo21-IGCn_sD7CXNGSvGb)
- - Windows: [<img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Windows_10_Logo.svg" alt="Windows Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=QAVe&id=16K15fO53NTx76OBWWQBHvHHri0qWfmN2)
+ - Windows: [<img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Windows_10_Logo.svg" alt="Windows Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=QH2n&id=1LixCefPDNdtTBWOSijsM9gOHQIKEPqm1)
  - Mac: _Mac binaries incoming!_
 
 Simply download the file, uncompress it and run the executable **./TEMNet** (Linux), **TEMNet.exe**(Windows)!
