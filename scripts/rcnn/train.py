@@ -34,8 +34,8 @@ def compound_training(model, dataset, iterations):
 """
 train_model: Run a single training procedure for RPN model
 """
-def train_model(backbone='temnet', weights_path=None):
-    with(tf.device('/GPU:0')):
+def train_model(backbone='temnet', weights_path=None, n_gpu='0'):
+    with(tf.device('/GPU:'+n_gpu)):
     #with mirrored_strategy.scope():
         config = Config(backbone=backbone)
         print(f"Training for RPN: {config.TRAIN_ONLY_RPN}")
@@ -47,7 +47,12 @@ def train_model(backbone='temnet', weights_path=None):
             print("--------------------Training RCNN model ------------------")
         if weights_path != None:
             print(f"Reading weights from {weights_path} ...")
-            rcnn.load_weights(weights_path, by_name=True)
+            try:
+                rcnn.load_weights(weights_path, by_name=True)
+            except:
+                print(f"Could not load weights, resorting back to imagenet pretrained weights ...")
+                weights_path = rcnn.get_imagenet_weights(backbone=backbone)
+                rcnn.load_weights(weights_path, by_name=True)
         else:
             print("No weights loaded.")
         hist, lrm = rcnn.train(dataset)
@@ -58,9 +63,10 @@ def train_model(backbone='temnet', weights_path=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-b", "--backbone", help="Backbone to train, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
+    parser.add_argument("-g", "--gpu", help="Number of the GPU to use for training", default='0')
     parser.add_argument("-w", "--weights", help="Path to starting weights to use for training", default=None)
     args = parser.parse_args()
     start=time.perf_counter()
-    train_model(args.backbone, args.weights)
+    train_model(args.backbone, args.weights, args.gpu)
     finish=time.perf_counter()
     print(f"Finished in {round(finish-start,2)} seconds")

@@ -148,7 +148,7 @@ def visualize(dataset, config, imgName = 'test'):
   pred_boxes[pred_boxes < 0.] = 0.
   pred_boxes[pred_boxes>images_gt[0].shape[0]] = images_gt[0].shape[0]
   # print(f"visualize: pred_boxes : {pred_boxes}")
-  V.visualize_rcnn_predictions(np.uint8(images_gt[0]), pred_boxes, pred_0["class_ids"], pred_0["scores"], imgName)
+  V.visualize_rcnn_predictions(np.uint8(images_gt[0]), pred_boxes, pred_0["class_ids"], pred_0["scores"], config.BACKBONE+'_'+imgName)
   mAP = I.compute_mAP(gt_boxes[0], gt_class_ids[0], pred_boxes, pred_0["class_ids"], pred_0["scores"])
   print(f"### mAP obtained for predictions on image {imgName} : {mAP}")
   #pred_boxes, pred_class_ids, pred_scores = predict_rcnn(config, imgName, image_gt, image_meta, anchors)
@@ -187,7 +187,7 @@ def predict_all_rcnn(dataset, config):
       pred_boxes[pred_boxes < 0.] = 0.
       pred_boxes[pred_boxes>images_gt[j].shape[0]] = images_gt[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
-      V.visualize_rcnn_predictions(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], imgNames[j])
+      V.visualize_rcnn_predictions(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j])
       mAP, _, _, _,_ = I.compute_mAP(gt_boxes[0], gt_class_ids[0], pred_boxes, pred["class_ids"], pred["scores"])
       print(f"### mAP obtained for predictions on image {imgNames[j]} : {mAP}")
       mAPs.append(mAP)
@@ -272,7 +272,7 @@ def predict_one_image(img_paths, config, save_fig):
       pred_boxes[pred_boxes < 0.] = 0.
       pred_boxes[pred_boxes>image_batch[j].shape[0]] = image_batch[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
-      pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], imgNames[j], save_fig)
+      pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], save_fig)
       pred_imgs.append(pred_img)
       overall_class_ids += list(pred["class_ids"])
       overall_scores += list(pred["scores"])
@@ -387,8 +387,8 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn, save_f
     print(f"Final number of detections: {len(all_pred_boxes)}")
     print(f"Final number of detections after nms: {len(nms_pred_boxes)}")
     # V.visualize_rcnn_predictions(source_image, all_pred_boxes, all_pred_class_ids, all_pred_scores, img_name)
-    pred_image = V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, img_name, save_fig)
-    V.visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, img_name)
+    pred_image = V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, save_fig)
+    V.visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config.DETECTION_EXCLUDE_BACKGROUND)
     #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
     return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, pred_image
   else:
@@ -450,7 +450,7 @@ def multicrop_input_image(image, crop_size, crop_step):
   print(f"### Number of images generated: {len(crop_imgs)}")
   return crop_imgs, crop_shifts
 
-def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config):
+def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config, rcnn):
   """
   predict_all_uncropped:
   """
@@ -470,7 +470,7 @@ def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config):
     gt_boxes = np.array(gt_boxes).astype('int32')
     gt_class_ids=I.change_label_to_num(gt_labs, config.CLASS_INFO)
     #Now predict
-    pred_boxes, pred_class_ids, pred_scores, _ = predict_uncropped_image(img_path, crop_size, crop_step, config)
+    pred_boxes, pred_class_ids, pred_scores, _ = predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn)
     #And calculate the mAP between gt and pred
     if len(pred_boxes) != 0:
       mAP, _, _, _, fp_count = I.compute_mAP(gt_boxes, gt_class_ids, pred_boxes, pred_class_ids, pred_scores)
@@ -499,6 +499,72 @@ def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config):
   avg_mAP = np.mean(mAPs)
   print(f"### Average mAP for dataset: {avg_mAP}")
   return avg_mAP, mAPs, np.array(all_class_ids).astype('int32'), np.array(all_scores), all_pred_counts, all_gt_counts, all_img_names, all_fp_counts
+
+def predict_all_uncropped_metrics(img_paths, csv_paths, crop_size, crop_step, config, rcnn, iou_threshold=0.5):
+  """
+  predict_all_uncropped_metrics:
+  """
+  #Metrics
+  mAPs = []
+  precisions = []
+  recalls = []
+  f1s = []
+
+  #All matches so precision and recall can be calculated for the whole dataset
+  all_gt_match = np.array([])
+  all_pred_match = np.array([])
+
+  # Class ids, scores, counts and names for writing files
+  all_class_ids = []
+  all_scores = []
+  all_pred_counts = []
+  all_gt_counts = []
+  all_img_names = []
+  for img_path, csv_path in zip(img_paths, csv_paths):
+    _, gt_labs, x, y, w, h = I.parse_region_data(csv_path)
+    #Format gt_labs and boxes so they can be compared against prediction outputs
+    gt_boxes=[]
+    for i in range(len(x)):
+      gt_boxes.append([y[i],x[i], y[i]+h[i], x[i]+w[i]])
+    gt_boxes = np.array(gt_boxes).astype('int32')
+    gt_class_ids=I.change_label_to_num(gt_labs, config.CLASS_INFO)
+    #Now predict
+    pred_boxes, pred_class_ids, pred_scores, _ = predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn)
+    #And find the matches between between gt and pred
+    if len(pred_boxes) != 0:
+      gt_match, pred_match,  _ = I.find_matches(gt_boxes, gt_class_ids, pred_boxes, pred_class_ids, pred_scores, iou_threshold)
+      precision_one, recall_one, f1_one, mAP_one, _, _= I.compute_metrics(gt_match, pred_match)
+      # mAP, _, _, _, fp_count = I.compute_mAP(gt_boxes, gt_class_ids, pred_boxes, pred_class_ids, pred_scores)
+    else:
+      gt_match, pred_match = -1*np.ones(1), -1*np.ones(1)
+      precision_one, recall_one, f1_one, mAP_one = 0., 0., 0., 0.
+    img_name = img_path.split('/')[-1]
+    #Keep the counts to write a csv file
+    #classes = ['eccentric','mature','immature']
+    class_counts = np.zeros(3) #Start at zero
+    present_class_id, counts = np.unique(pred_class_ids, return_counts=True) #And count those present
+    if len(counts) != 0:
+      class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+    all_pred_counts.append(class_counts)
+    class_counts = np.zeros(3) #Start at zero
+    present_class_id, counts = np.unique(gt_class_ids, return_counts=True) #And count those present
+    class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+    all_gt_counts.append(class_counts)
+    all_img_names.append(img_name)
+    print(f"Class counts on image {img_name}: {class_counts}")
+    print(f"#mAP obtained for predictions on image {img_name} : {mAP_one}")
+    all_class_ids += list(pred_class_ids)
+    all_scores += list(pred_scores)
+    
+    mAPs.append(mAP_one)
+    recalls.append(recall_one)
+    precisions.append(precision_one)
+    f1s.append(f1_one)
+    all_gt_match = np.append(all_gt_match, gt_match)
+    all_pred_match = np.append(all_pred_match, pred_match)
+  avg_mAP = np.mean(mAPs)
+  print(f"### Average mAP for dataset: {avg_mAP}")
+  return avg_mAP, mAPs, recalls, precisions, f1s, all_gt_match, all_pred_match, np.array(all_class_ids).astype('int32'), np.array(all_scores), all_pred_counts, all_gt_counts, all_img_names
 
 def write_counts_csv(csvname, img_names, gt_counts, pred_counts, fp_counts):
   with open(csvname, mode='w', newline='') as labels:
@@ -611,6 +677,45 @@ if __name__ == '__main__':
     print(f"TRAINING max mAP: {np.max(mAPs_train)}")
     print(f"TRAINING min mAP: {np.min(mAPs_train)}")
     print(f"COMPLETE avg mAP: {np.mean(mAPs_train+mAPs_val)}")
+  elif(args.data == 'dataset_noaug_metrics'):
+    #Build image paths
+    # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
+    # VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
+    TRAIN_PATH = config.TRAIN_PATH_NOAUG
+    VAL_PATH = config.VAL_PATH_NOAUG
+    # Read images from train and validation:
+    train_ids = next(os.walk(TRAIN_PATH))[1]#[:1]#All folder names in TRAIN_PATH
+    val_ids = next(os.walk(VAL_PATH))[1][:1]#All folder names in TRAIN_PATH
+    image_paths_train = [os.path.join(TRAIN_PATH, img_name, img_name+'.png') for img_name in train_ids]
+    image_paths_val = [os.path.join(VAL_PATH, img_name, img_name+'.png') for img_name in val_ids]
+    csv_paths_train = [os.path.join(TRAIN_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in train_ids]
+    csv_paths_val = [os.path.join(VAL_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in val_ids]
+    #Sequentially predict on the uncropped images and store their class ids
+    #Predict for both Train and Validation sets
+    avg_mAP_train, mAPs_train, recalls_train, precisions_train, f1s_train, gt_match_train, pred_match_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train = predict_all_uncropped_metrics(image_paths_train, csv_paths_train, crop_size, crop_step, config, rcnn)
+    precision_train, recall_train, f1_train, mAP_train, p_train, r_train = I.compute_metrics(gt_match_train, pred_match_train)
+    write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, -1*np.ones_like(pred_counts_train))
+    avg_mAP_val, mAPs_val, recalls_val, precisions_val, f1s_val, gt_match_val, pred_match_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val = predict_all_uncropped_metrics(image_paths_val, csv_paths_val, crop_size, crop_step, config, rcnn)
+    precision_val, recall_val, f1_val, mAP_val, p_val, r_val = I.compute_metrics(gt_match_val, pred_match_val)
+    write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, -1*np.ones_like(pred_counts_val))
+    write_counts_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, -1*np.ones_like(pred_counts_train+pred_counts_val))
+    #V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
+
+    print("\n")
+    print(77*"#")
+    print(f"####### PREDICTIONS LOG FOR UNCROPPED DATASET #######")
+    print("VALIDATION:\n")
+    print(f"mAP: (avg) {avg_mAP_val},    (min) {np.min(mAPs_val)},    (max) {np.max(mAPs_val)},    (full) {mAP_val}    ")
+    print(f"precision: (avg) {np.mean(precisions_val)},    (min) {np.min(precisions_val)},    (max) {np.max(precisions_val)},    (full) {precision_val}    ")
+    print(f"recall: (avg) {np.mean(recalls_val)},    (min) {np.min(recalls_val)},    (max) {np.max(recalls_val)},    (full) {recall_val}    ")
+    print(f"f1: (avg) {np.mean(f1s_val)},    (min) {np.min(f1s_val)},    (max) {np.max(f1s_val)},    (full) {f1_val}    ")
+    print("TRAINING:\n")
+    print(f"mAP: (avg) {avg_mAP_train},    (min) {np.min(mAPs_train)},    (max) {np.max(mAPs_train)},    (full) {mAP_train}    ")
+    print(f"precision: (avg) {np.mean(precisions_train)},    (min) {np.min(precisions_train)},    (max) {np.max(precisions_train)},    (full) {precision_train}    ")
+    print(f"recall: (avg) {np.mean(recalls_train)},    (min) {np.min(recalls_train)},    (max) {np.max(recalls_train)},    (full) {recall_train}    ")
+    print(f"f1: (avg) {np.mean(f1s_train)},    (min) {np.min(f1s_train)},    (max) {np.max(f1s_train)},    (full) {f1_train}    ")
+    V.visualize_pr_curve(p_train,r_train,mAP_train, p_val, r_val, mAP_val, f"{config.BACKBONE}_pr_curve")
+    print(f"PR curve saved to: {config.BACKBONE+'_pr_curve.png'}")
   elif(args.data == 'multiple'):
     #Build image paths
     # IMAGES_PATH = '/scratch/07655/jsreyl/imgs/nov_dataset'
@@ -620,13 +725,18 @@ if __name__ == '__main__':
     images_ids = next(os.walk(IMAGES_PATH))[2]#All file names in IMAGES_PATH
     image_paths_train = [os.path.join(IMAGES_PATH, img_name) for img_name in images_ids if img_name.endswith(IMG_FORMAT)]
     if(len(image_paths_train)==0):#No images found? Search directory-wise, i.e. /path/07655/07655.png
+      print('No images found, searching directory wise')
       images_ids = next(os.walk(IMAGES_PATH))[1]#All folder names in IMAGES_PATH
-      for img_fmt in IMG_FORMAT:
-        image_paths_train += [os.path.join(IMAGES_PATH, img_name, img_name+img_fmt) for img_name in images_ids]
+      print(f"Folders found: {images_ids}")
+      # for img_fmt in IMG_FORMAT:
+      # image_paths_train += [os.path.join(IMAGES_PATH, img_name, img_name+img_fmt) for img_name in images_ids if img_name.endswith(img_fmt)]
+      image_paths_train = [os.path.join(IMAGES_PATH, img_name, img_name+'.png') for img_name in images_ids]
+    print(f"Image paths: {image_paths_train}")
 
     #Predict for both Train and Validation sets
     for image_path in image_paths_train:
         imgName = image_path.split('/')[-1].split('.')[0]
+        print(f'Predicting for image {imgName}')
         #img_names.append(imgName)
         _, pred_class_ids, pred_scores, _ = predict_uncropped_image(image_path, crop_size, crop_step, config, rcnn)
   elif(args.data == 'single'):

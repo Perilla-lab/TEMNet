@@ -148,7 +148,7 @@ def visualize_benchmarks(train_loss, val_loss, config):
     lossfile_path = os.path.join(IMAGE_PATH,"RCNN_OUR_BENCHMARKS_"+config.BACKBONE+"_losses.txt")
     with open(lossfile_path, 'w') as lossfile:
         for i in range(len(train_loss)):
-            lossfile.write("{} {} {}".format(i, train_loss[i], val_loss[i]))
+            lossfile.write("{} {} {}\n".format(i, train_loss[i], val_loss[i]))
     fig.savefig(os.path.join(IMAGE_PATH,"RCNN_BENCHMARKS_"+config.BACKBONE+"_"+date+".png"))
 
 """
@@ -179,7 +179,7 @@ def visualize_learning_rate(lr, config):
     with open(lossfile_path, 'w') as lossfile:
         for i in range(len(lr)):
             lossfile.write("{} {}".format(i, lr[i]))
-    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_BENCHMARKS_lr_"+date+".png"))
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_BENCHMARKS_lr_"+config.BACKBONE+'_'+date+".png"))
 
 
 """
@@ -325,9 +325,8 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName, save_fi
     time = datetime.datetime.now()
     date = time.strftime("%m")+"_"+time.strftime("%d") + "_" + time.strftime("%I") + "_" + time.strftime("%M")
     fig, axes = plt.subplots()
-    #plt.tight_layout()
-    plt.axis('off')
     plt.tight_layout()
+    plt.axis('off')
     axes.imshow(image)
     # axes.set_title("RCNN predictions")
     print("Source image displayed without errors")
@@ -335,7 +334,10 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName, save_fi
     for i, box, class_id, score in zip(range(boxes.shape[0]), boxes, class_ids, scores):
         # Draw the boxes
         y1, x1, y2, x2 = box
-        if class_id == 1:
+        if class_id == 0:
+            label = 'b' #Background
+            color = 'r'
+        elif class_id == 1:
             label = 'e'
             color = 'g'
         elif class_id == 2:
@@ -358,7 +360,7 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName, save_fi
         return img
 
 
-def visualize_predictions_count(class_ids, scores, imgName):
+def visualize_predictions_count(class_ids, scores, imgName, exclude_background=True):
     """
     Saves an bar plot of the number of particles according to their classes by the rcnn predictions
     Inputs:
@@ -368,26 +370,6 @@ def visualize_predictions_count(class_ids, scores, imgName):
     Outputs:
       None, uses matplotlib to save an image
     """
-    time = datetime.datetime.now()
-    date = time.strftime("%m")+"_"+time.strftime("%d") + "_" + time.strftime("%I") + "_" + time.strftime("%M")
-    fig, ax = plt.subplots()
-    #Generate arrays for counting the number of particles
-    classes = ['eccentric','mature','immature']
-    class_counts = np.zeros(3) #Start at zero
-    present_class_id, counts = np.unique(class_ids, return_counts=True) #And count those present
-    if len(counts) != 0:
-        class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
-    print(f"Class counts on image {imgName}: {class_counts}")
-    # Keep track of the mean score for each class to use as labels
-    lab_scores = np.zeros(3)
-    for i in present_class_id:
-        lab_scores[i-1]=np.mean(scores[np.where(class_ids==i)])
-    #Now use them for a plot bar
-    rects1 = ax.bar(np.arange(len(classes)), class_counts, width = 0.8)
-    ax.set_xticks(np.arange(len(classes)))
-    ax.set_xticklabels(classes)
-    ax.set_ylabel('Prediction counts')
-    ax.set_title(f'Prediction counts for image {imgName}')
     def autolabel(rects, labels):
         """Attach a text label above each bar in *rects*, displaying its height."""
         for lab, rect in zip(labels, rects):
@@ -398,8 +380,37 @@ def visualize_predictions_count(class_ids, scores, imgName):
                         textcoords="offset points",
                         ha='center', va='bottom')
 
+    time = datetime.datetime.now()
+    date = time.strftime("%m")+"_"+time.strftime("%d") + "_" + time.strftime("%I") + "_" + time.strftime("%M")
+    fig, ax = plt.subplots()
+    #Generate arrays for counting the number of particles
+    if exclude_background:
+        classes = ['eccentric','mature','immature']
+        class_counts = np.zeros(3) #Start at zero
+        present_class_id, counts = np.unique(class_ids, return_counts=True) #And count those present
+        if len(counts) != 0:
+            class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+        print(f"Class counts on image {imgName}: {class_counts}")
+        # Keep track of the mean score for each class to use as labels
+        lab_scores = np.zeros(3)
+        for i in present_class_id:
+            lab_scores[i-1]=np.mean(scores[np.where(class_ids==i)])
+    else:
+        classes = ['backgound','eccentric','mature','immature']
+        class_counts = np.zeros(len(classes)) #Start at zero
+        present_class_id, counts = np.unique(class_ids, return_counts=True) #And count those present
+        print(f"Class counts on image {imgName}: {class_counts}")
+        # Keep track of the mean score for each class to use as labels
+        lab_scores = np.zeros(len(classes))
+        for i in present_class_id:
+            lab_scores[i]=np.mean(scores[np.where(class_ids==i)])
+    #Now use them for a plot bar
+    rects1 = ax.bar(np.arange(len(classes)), class_counts, width = 0.8)
+    ax.set_xticks(np.arange(len(classes)))
+    ax.set_xticklabels(classes)
+    ax.set_ylabel('Prediction counts')
+    ax.set_title(f'Prediction counts for image {imgName}')
     autolabel(rects1, class_counts)
-
     fig.savefig(os.path.join(IMAGE_PATH,"RCNN_COUNTS_" + imgName + "_" + date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
     plt.close()
 
@@ -521,6 +532,29 @@ def visualize_score_histograms(_class_ids, _scores, imgName, nbins=10):
 
     fig.savefig(os.path.join(IMAGE_PATH,"RCNN_STATS_" + imgName + "_"+ date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
     plt.close()
+
+def visualize_pr_curve(p_train, r_train, mAP_train, p_val, r_val, mAP_val, imgName):
+    """
+    visualize_pr_curve : Visualize the precission-recall curve for a given precision and recall lists and mAPs
+    Inputs:
+      p_train, r_train, mAP_train: np arrays of precision and recall ordered from min to max, mAP calculated from integrating the PR curve
+    Outputs:
+      None, saves an image with the different histograms
+    """
+    time = datetime.datetime.now()
+    date = time.strftime("%m")+"_"+time.strftime("%d") + "_" + time.strftime("%I") + "_" + time.strftime("%M")
+    fig, ax = plt.subplots(1,1, figsize=(8,8))
+    #Scores for all particles
+    ax.plot(r_train, p_train, label=f"Training, mAP={round(mAP_train,2)}")
+    ax.plot(r_val, p_val, label=f"Validating, mAP={round(mAP_val,2)}")
+    ax.set_ylabel('Precision')
+    ax.set_xlabel('Recall')
+    ax.legend(loc='upper right')
+
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_METRICS_" + imgName + "_"+ date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
+    plt.close()
+    np.savetxt(os.path.join(IMAGE_PATH,"RCNN_METRICS_"+imgName+"_train_"+date+".txt"), np.column_stack((p_train, r_train, mAP_train*np.ones_like(p_train))))
+    np.savetxt(os.path.join(IMAGE_PATH,"RCNN_METRICS_"+imgName+"_val_"+date+".txt"), np.column_stack((p_val, r_val, mAP_val*np.ones_like(p_val))))
 
 if __name__ == "__main__":
     print("VISUALIZE")

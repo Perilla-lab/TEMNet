@@ -711,6 +711,63 @@ def compute_mAP(gt_boxes, gt_class_ids, pred_boxes, pred_class_ids,
 
     return mAP, precisions, recalls, IoU, fp_count
 
+def compute_metrics(gt_match, pred_match):
+    """
+    Computes Precision, Recall, F1 score, Precision Recall curve and the mean Average Precision for a given set of prediction to ground truth matches
+    Inputs:
+        gt_match: [N_GT, 1] indices of the predicted box which matches this gt box, -1 if there's no match
+        pred_match: [N,1] indices of gt_box that matches the predicted box, -1 if there's no match, could be the output of find_matches
+    Returns:
+        precision: double, TP/(TP+FP) for the matches
+        recall: double, TP/(TP+FN) for the matches (see https://en.wikipedia.org/wiki/Precision_and_recall for reference)
+        F1 score: double, 2*precision*recall/(precision+recall)
+        mAP: double, mean Average Precision
+        precisions, recalls = Oredered precision and recall lists to produce a Precision-Recall curve from which mAP is calculated.
+    """
+    #Compute matches and IoU scores
+    #gt_match, pred_match, IoU = find_matches(gt_boxes, gt_class_ids,
+    #    pred_boxes, pred_class_ids, pred_scores,iou_threshold)
+
+    # Compute precision and recall at each prediction box step
+    #pred_match stores the indices of the gt_boxes that best match each pred_box
+    #When there are no such matches there's a -1, so to calculate the precisions treat these as false positives
+    #fp_count = 0
+    #if len(pred_match) != 0:
+    #    fp_count = np.cumsum(pred_match == -1)[-1]
+    #Remember
+    #precision=true_positives/(true_positives+false_positives)
+    #recall=true_positives/(true_positives+false_negatives)
+    precisions = np.cumsum(pred_match > -1) / (np.arange(len(pred_match)) + 1)
+    recalls = np.cumsum(pred_match > -1).astype(np.float32) / len(gt_match)
+    precision = np.sum(pred_match > -1)/ len(pred_match)
+    recall = np.sum(pred_match > -1)/ len(gt_match)
+    f1_score = 2*(precision*recall)/(precision + recall)
+
+    # Pad with start and end values to simplify the math in the next step
+    precisions = np.concatenate([[0], precisions, [0]])
+    recalls = np.concatenate([[0], recalls, [1]])
+
+    # Ensure precision values decrease but don't increase. This way, the
+    # precision value at each recall threshold is the maximum it can be
+    # for all following recall thresholds, as specified by the VOC paper.
+    # read https://jonathan-hui.medium.com/map-mean-average-precision-for-object-detection-45c121a31173 for reference
+    for i in range(len(precisions) - 2, -1, -1):
+        precisions[i] = np.maximum(precisions[i], precisions[i + 1]) #This is choosing the max to the right
+
+    # Compute mean AP over recall range
+    # Note we skip the first and last values to avoid the padding
+    # And then we add 1 to make sure our indices match the padded array
+    indices = np.where(recalls[:-1] != recalls[1:])[0] + 1
+    # Remember we calculate the AP from the precision recall curve
+    #  AP = \int_0^1 precision(recall) drecall
+    # Since the AP is the integral (the area under the curve) 
+    # and we made sureour curve is composed of blocks
+    # it can be calculated simply as the area of the rectangle (recall_i+1 -recall_i)*precision_i
+    mAP = np.sum((recalls[indices] - recalls[indices - 1]) *
+                 precisions[indices])
+
+    return precision, recall, f1_score, mAP, precisions, recalls
+
 def norm_boxes_tf(boxes, shape):
     """Converts boxes from pixel coordinates to normalized coordinates.
     boxes: [N, (y1, x1, y2, x2)] in pixel coordinates

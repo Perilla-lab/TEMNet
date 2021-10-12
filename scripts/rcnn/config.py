@@ -48,11 +48,10 @@ class Config(object):
     IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn')                     # PATH FOR GENERAL IMG SETS
     #Weight sets for different backbones
     WEIGHT_SET_DICT = {
-        # 'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
-        'temnet': WEIGHT_PATH + '/rcnn_novel_weights.06_aug_gn_fpn2620_res512_wt_full.hdf5',
-        # 'temnet': WEIGHT_PATH + '/rcnn_novel_weights.40_aug_gn_fpn2620_res512_full.hdf5',
+        'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
         'resnet101': WEIGHT_PATH + '/rcnn_resnet101_weights_res512.hdf5',
-        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_res512.hdf5'
+        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_res512.hdf5',
+        'inception_resnetv2': WEIGHT_PATH+'/rcnn_inception_resnetv2_weights_res512.hdf5'
     }
     # General hyperparams
     #Name of the configuration, this can be overridden in Config instances
@@ -70,7 +69,7 @@ class Config(object):
     EPOCHS = 100
 
     #Backbone convolutional network to use
-    #Impleneted architectures: temnet, resnet50, resnet101, resnet152, resnet50v2, resnet101v2, resnet152v2, vgg.
+    #Implemented architectures: temnet, resnet50, resnet101, resnet152, resnet50v2, resnet101v2, resnet152v2, vgg, inception_resnetv2.
     BACKBONE = "temnet"
 
     #Strides for the feature map shapes (this is used to calculate the cnn shapes in cnn_input_shapes and to generate anchors in generate_anchors)
@@ -127,6 +126,8 @@ class Config(object):
     # Non-maximum suppression threshold for detection
     DETECTION_NMS_THRESHOLD = 0.3
 
+    # Whether to report background instances or not
+    DETECTION_EXCLUDE_BACKGROUND = False
     
     #Whether to use ROIs from RPN predictions or from an external input
     # This is useful if we're training only the classifier heads so we can disregard the RPN predictions
@@ -406,7 +407,7 @@ class Dataset(Sequence):
           [H,W,3] np.array containing the pixel level information of the image
         """
         filename = os.path.join(self.path,_id,_id+'.png')
-        print (f"classes:Dataset: load_image {filename}")
+        # print (f"classes:Dataset: load_image {filename}")
         #load_img automatically tranforms the image into a RGB PIL image, so no need to worry about converting grayscale or alpha
         return img_to_array(load_img(filename, target_size=self.config.IMAGE_SHAPE))
 
@@ -595,7 +596,7 @@ class Image(Sequence):
         Outputs:
           [H,W,3] np.array containing the pixel level information of the image
         """
-        print (f"classes:Dataset: load_image {filename}")
+        # print (f"classes:Dataset: load_image {filename}")
         #load_img automatically tranforms the image into a RGB PIL image, so no need to worry about converting grayscale or alpha
         return img_to_array(load_img(filename, target_size=self.config.IMAGE_SHAPE))
 

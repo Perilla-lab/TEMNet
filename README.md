@@ -4,7 +4,7 @@
 ##### Juan S. Rey, Hagan Beatson, Christian Lantz, Alex Bryer, Juan Perilla
 
 ## Introduction
-TEMNet is a CNN backbone designed for viral particle detection from TEM micrographs. TEMNet works as the backbone for a Faster RCNN implementation used for viral instance detection and classification.
+TEMNet is a CNN backbone designed for viral particle detection from TEM micrographs. TEMNet works as the backbone for a Faster RCNN implementation used for viral instance detection and classification. Read the paper at https://doi.org/10.1016/j.csbj.2021.10.001 .
 ![Faster RCNN and TEMNet architectures](/graphs/RCNN_TEMNet.png)
 
 ![TEMNet procedure](/graphs/TEMNet_procedure.png)
@@ -24,7 +24,7 @@ TEMNet now offers a User Interface, just upload your TEM micrographs, click pred
 Download the GUI from (click the logos):
 
  - Linux: [<img src="https://linuxfoundation.org/wp-content/uploads/linux.svg" alt="Linux Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=SlTA&id=1mCACQs_RszHeo21-IGCn_sD7CXNGSvGb)
- - Windows: [<img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Windows_10_Logo.svg" alt="Windows Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=QH2n&id=1LixCefPDNdtTBWOSijsM9gOHQIKEPqm1)
+ - Windows: [<img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Windows_10_Logo.svg" alt="Windows Download!" width="100"/>](https://drive.google.com/uc?export=download&confirm=QAVe&id=16K15fO53NTx76OBWWQBHvHHri0qWfmN2)
  - Mac: _Mac binaries incoming!_
 
 Simply download the file, uncompress it and run the executable **./TEMNet** (Linux), **TEMNet.exe**(Windows)!
