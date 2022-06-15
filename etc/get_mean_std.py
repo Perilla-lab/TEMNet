@@ -2,7 +2,7 @@ import os
 import numpy as np
 from PIL import Image
 
-from scripts.app.app import IMG_FORMAT #Tensorflow's load image uses PIL.Image anyways lol
+#Tensorflow's load image uses PIL.Image anyways lol
 #from tensorflow.keras.preprocessing.image import img_to_array, load_img, array_to_img, save_img
 
 def load_image_safe(imgname, target_size=None, verbose = False):
@@ -17,24 +17,24 @@ def load_image_safe(imgname, target_size=None, verbose = False):
     im = Image.open(imgname)
     # Load the data into a flat numpy array of the correct type and reshape
     if verbose: print(f'Loading {imgname} with type {im.mode}')
-    dtype = {'F': np.float32, 'L': np.uint8, 'I;16': np.uint16, 'I': np.uint32}[im.mode] 
-    if verbose: print(f"Image minmax: {(im.min(), im.max())}")
     if target_size!=None:
         if verbose: print(f'Resizing to: {target_size}')
         im = im.resize(size=target_size, resample=Image.NEAREST)
     try:
+        dtype = {'F': np.float32, 'L': np.uint8, 'I;16': np.uint16, 'I': np.uint32}[im.mode] 
         np_img = np.array(im, dtype=dtype)
     except:
         #Let numpy decide which dtype to use, we're gonna send this to np.uint8 anyways lol
         np_img = np.array(im)
     if verbose: print(f"Loaded into numpy array of type {np_img.dtype} and shape {np_img.shape}")
-    if len(np_img.shape > 2):  print(f"WARNING: Image shape: {np_img.shape} contains more than one channel")
+    if verbose: print(f"Image minmax: {(np_img.min(), np_img.max())}")
+    if len(np_img.shape) < 3:  print(f"WARNING: Image shape: {np_img.shape} contains one channel, stacking to make three channels...")
     #w, h = im.size
     #np_img = np.image.reshape((h, w, np_img.size // (w * h)))
     #Normalize the image 
-    np_img = (np_img - np_img.min())/(np_img.max() -np_img.max())
+    np_img = (np_img - np_img.min())/(np_img.max() - np_img.min())
     # Copy the data into each RGB channel for visualization purposes
-    np_img = np.stack([np_img, np_img, np_img], axis=2)
+    if len(np_img.shape) == 2: np_img = np.stack([np_img, np_img, np_img], axis=2)
     # Scale the image to get a 8bit representation
     np_img =  (256*np_img).astype(np.uint8)
     #np_img = np_img[:,:,:,0]
@@ -42,7 +42,8 @@ def load_image_safe(imgname, target_size=None, verbose = False):
 
 if __name__ == '__main__':
     #IMG_FORMAT = ('.tif','.png','.jpg','.jpeg','.bpm','.eps')
-    TRAIN_PATH='../dataset/rcnn_multiviral_dataset_full/train'
+    #TRAIN_PATH='../dataset/viral_dataset_full/train'
+    TRAIN_PATH='../dataset/rcnn_dataset_full/train'
     image_ids=next(os.walk(TRAIN_PATH))[1]#All directory names in read_path stored in an array
     print(image_ids)
     #Load every image
@@ -65,6 +66,7 @@ if __name__ == '__main__':
         stds.append(np.std(image, axis=(0,1)))
     full_mean = np.array(means).mean(axis=0)
     full_std = np.array(stds).mean(axis=0)
-    print()
+    print(f"MEANS: {means}\nSTDS: {stds}")
+    print(f"Total stats over {len(image_ids)} images:\nMEAN:{full_mean}\nSTD:{full_std}")
 
 

@@ -2,9 +2,46 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import copy
+from PIL import Image
 import tensorflow as tf
-from tensorflow.keras.preprocessing.image import img_to_array, load_img, array_to_img, save_img
+#from tensorflow.keras.preprocessing.image import img_to_array, load_img, array_to_img, save_img
+from tensorflow.keras.preprocessing.image import array_to_img, save_img
 import cv2, re, csv, os
+
+def load_image_safe(imgname, target_size=None, verbose = False):
+    """
+    Loads a .tif or .png image and converts it to a int8 bit representation
+    INPUTS:
+        imgname: path of the image to be loaded
+    OUTPUTS
+        np_img: np.uint8 array containing the 8bit representation of the image (This is the way it would be seen in fiji)
+    """
+    #Open TIF image using PIL
+    im = Image.open(imgname)
+    # Load the data into a flat numpy array of the correct type and reshape
+    if verbose: print(f'Loading {imgname} with type {im.mode}')
+    if target_size!=None:
+        if verbose: print(f'Resizing to: {target_size}')
+        im = im.resize(size=target_size, resample=Image.NEAREST)
+    try:
+        dtype = {'F': np.float32, 'L': np.uint8, 'I;16': np.uint16, 'I': np.uint32}[im.mode] 
+        np_img = np.array(im, dtype=dtype)
+    except:
+        #Let numpy decide which dtype to use, we're gonna send this to np.uint8 anyways lol
+        np_img = np.array(im)
+    if verbose: print(f"Loaded into numpy array of type {np_img.dtype} and shape {np_img.shape}")
+    if verbose: print(f"Image minmax: {(np_img.min(), np_img.max())}")
+    if len(np_img.shape) < 3:  print(f"WARNING: Image shape: {np_img.shape} contains one channel, stacking to make three channels...")
+    #w, h = im.size
+    #np_img = np.image.reshape((h, w, np_img.size // (w * h)))
+    #Normalize the image 
+    np_img = (np_img - np_img.min())/(np_img.max() - np_img.min())
+    # Copy the data into each RGB channel for visualization purposes
+    if len(np_img.shape) == 2: np_img = np.stack([np_img, np_img, np_img], axis=2)
+    # Scale the image to get a 8bit representation
+    np_img =  (256*np_img).astype(np.uint8)
+    #np_img = np_img[:,:,:,0]
+    return np_img
 
 
 def parse_region_data(csvname):
@@ -370,11 +407,19 @@ def expand_images(read_path, rewrite=True):
         augmentations = ['horizontal-flip', 'vertical-flip', '180-rotation','salt-pepper']
         print(77*"#")
         print(f"Processing image #{i}\n")
-        LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
-        print(f"Loading image from {LOAD_PATH}")
+        try:
+            LOAD_PATH=os.path.join(read_path,img_name,img_name+'.tif')
+            print(f"Loading image from {LOAD_PATH}")
+            image = load_image_safe(LOAD_PATH, verbose=True)
+        except:
+            LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
+            print(f"Loading image from {LOAD_PATH}")
+            image = load_image_safe(LOAD_PATH)
+        #LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
+        #print(f"Loading image from {LOAD_PATH}")
         #img = load_img(LOAD_PATH)
         #img_array=img_to_array(img)
-        image = np.uint8(img_to_array(load_img(LOAD_PATH)))
+        #image = np.uint8(img_to_array(load_img(LOAD_PATH)))
         max_height, max_width = image.shape[:2]
         idx, lab, x, y, w, h = parse_region_data(os.path.join(read_path,img_name,'region_data_'+img_name+'.csv')) #'region_data_7826001.csv'
         #Augment, change to np arrays for easy matrix manipulation
@@ -424,11 +469,20 @@ def expand_images_crops(crop_size, step_size, read_path, write_path, rewrite=Tru
   for i,img_name in enumerate(image_ids):
     print(77*"#")
     print(f"Processing image #{i}\n")
-    LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
-    print(f"Loading image from {LOAD_PATH}")
-    img = load_img(LOAD_PATH)
-    img_array=img_to_array(img)
-    image = np.uint8(img_to_array(load_img(LOAD_PATH)))
+    try:
+      LOAD_PATH=os.path.join(read_path,img_name,img_name+'.tif')
+      print(f"Loading image from {LOAD_PATH}")
+      image = load_image_safe(LOAD_PATH, verbose=True)
+    except:
+      LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
+      print(f"Loading image from {LOAD_PATH}")
+      image = load_image_safe(LOAD_PATH)
+    #LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
+    #LOAD_PATH=os.path.join(read_path,img_name,img_name+'.tif')
+    #print(f"Loading image from {LOAD_PATH}")
+    #img = load_img(LOAD_PATH)
+    #img_array=img_to_array(img)
+    #image = np.uint8(img_to_array(load_img(LOAD_PATH)))
     max_height, max_width = image.shape[:2]
     idx, lab, x, y, w, h = parse_region_data(os.path.join(read_path,img_name,'region_data_'+img_name+'.csv')) #'region_data_7826001.csv'
     #Augment, change to np arrays for easy matrix manipulation
@@ -461,14 +515,14 @@ def expand_images_crops(crop_size, step_size, read_path, write_path, rewrite=Tru
 
 if __name__ == '__main__':
     # Paths to search for dataset images
-    TRAIN_PATH='./rcnn_dataset_full/train'
-    VAL_PATH='./rcnn_dataset_full/val'
+    TRAIN_PATH='./viral_dataset_full/train'
+    VAL_PATH='./viral_dataset_full/val'
 
     #First crop the images into overlapping regions
     crop_size = (1024, 1024)
     step_size = (500,500)
-    expand_images_crops(crop_size, step_size, TRAIN_PATH, './rcnn_dataset_augmented/train', rewrite= True)
-    expand_images_crops(crop_size, step_size, VAL_PATH, './rcnn_dataset_augmented/val', rewrite = True)
+    expand_images_crops(crop_size, step_size, TRAIN_PATH, './viral_dataset_augmented/train', rewrite= False)
+    expand_images_crops(crop_size, step_size, VAL_PATH, './viral_dataset_augmented/val', rewrite = True)
     # And further expand the training dataset by rotating and adding gaussian noise
-    expand_images('./rcnn_dataset_augmented/train', rewrite= True)
+    expand_images('./viral_dataset_augmented/train', rewrite= True)
     # expand_images(VAL_PATH, rewrite = False)
