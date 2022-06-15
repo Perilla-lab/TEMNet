@@ -39,7 +39,7 @@ def load_image_safe(imgname, target_size=None, verbose = False):
     # Copy the data into each RGB channel for visualization purposes
     if len(np_img.shape) == 2: np_img = np.stack([np_img, np_img, np_img], axis=2)
     # Scale the image to get a 8bit representation
-    np_img =  (256*np_img).astype(np.uint8)
+    np_img =  (255*np_img).astype(np.uint8)
     #np_img = np_img[:,:,:,0]
     return np_img
 
@@ -176,10 +176,10 @@ def augment(image, x, y, w, h, atype=None):
     aug_x, aug_y, aug_w, aug_h = width - (x+w), height- (y+h), w, h
   elif atype=='salt-pepper':
     #Add gaussian noise of mean 0 and stddev 1
-    aug_image=image/255
+    aug_image=tf.cast(image/255, dtype = tf.float32)
     noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=1.0, dtype=tf.float32)
-    aug_image = tf.add(image, noise)
-    aug_image=aug_image*255
+    aug_image = tf.add(aug_image, 0.05*noise)
+    aug_image=tf.cast(aug_image*255,dtype=tf.uint8)
     aug_x, aug_y, aug_w, aug_h = x, y, w, h
   elif atype=='translate-up':
     #Pad the image to move it and then crop it, displace the box coordinates accordingly
@@ -399,7 +399,12 @@ def expand_images(read_path, rewrite=True):
     Outputs:
       None, saves augmented images to folders /read_path/image_name-augmentation_name/image_name-augmentation_name.png
     """
-    image_ids=next(os.walk(read_path))[1]#All directory names in read_path stored in an array
+    image_ids_all=next(os.walk(read_path))[1]#All directory names in read_path stored in an array
+    #Filter out folders that are already augmented
+    forbidden_words = ['horizontal-flip', 'vertical-flip', '180-rotation','salt-pepper']
+    image_ids = image_ids_all
+    for f in range(len(forbidden_words)):
+        image_ids = [i for i in image_ids if forbidden_words[f] not in i]
     print(image_ids)
     #Load every image
     print("Number of images to process: {len(image_ids)}")
@@ -515,14 +520,14 @@ def expand_images_crops(crop_size, step_size, read_path, write_path, rewrite=Tru
 
 if __name__ == '__main__':
     # Paths to search for dataset images
-    TRAIN_PATH='./viral_dataset_full/train'
-    VAL_PATH='./viral_dataset_full/val'
+    TRAIN_PATH='./rcnn_multiviral_dataset_full/train'
+    VAL_PATH='./rcnn_multiviral_dataset_full/val'
 
     #First crop the images into overlapping regions
     crop_size = (1024, 1024)
     step_size = (500,500)
-    expand_images_crops(crop_size, step_size, TRAIN_PATH, './viral_dataset_augmented/train', rewrite= False)
-    expand_images_crops(crop_size, step_size, VAL_PATH, './viral_dataset_augmented/val', rewrite = True)
+    expand_images_crops(crop_size, step_size, TRAIN_PATH, './rcnn_multiviral_dataset_augmented/train', rewrite= False)
+    expand_images_crops(crop_size, step_size, VAL_PATH, './rcnn_multiviral_dataset_augmented/val', rewrite = True)
     # And further expand the training dataset by rotating and adding gaussian noise
-    expand_images('./viral_dataset_augmented/train', rewrite= True)
+    expand_images('./rcnn_multiviral_dataset_augmented/train', rewrite= True)
     # expand_images(VAL_PATH, rewrite = False)

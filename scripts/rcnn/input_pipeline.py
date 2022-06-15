@@ -905,15 +905,18 @@ def compose_image_data(image_name, original_image_shape, image_shape):
     crop_id = 0
     aug_id = 0
     image_id = image_name
-    image_id = int(image_name) if image_name.isnumeric() else ord(image_name[-1])
-    metadata = image_name.split('-')
+    #image_id = int(image_name) if image_name.isnumeric() else ord(image_name[-1])
+    metadata = image_name.split('-crop')
     if len(metadata)>=2:
-        image_id = int(metadata[0]) if metadata[0].isnumeric() else ord(metadata[0][-1])
-        crop_id = ''.join(filter(lambda i: i.isdigit(), metadata[1])) #get the crop number from string 'crop##'
+        #image_id = int(metadata[0]) if metadata[0].isnumeric() else ord(metadata[0][-1])
+        image_id = metadata[0]
+        metadata2 = metadata[1].split('-')
+        #crop_id = ''.join(filter(lambda i: i.isdigit(), metadata[1])) #get the crop number from string 'crop##'
+        crop_id = metadata2[0]  #get the crop number from string 'crop##'
         # print(crop_id)
-        if len(metadata)>3:
+        if len(metadata2)>=3:
             #augmentation can be horizontal-flip, vertical-flip, 180-rotation and salt-pepper
-            aug_string = '-'.join(metadata[2:])
+            aug_string = '-'.join(metadata2[1:])
             if aug_string == 'horizontal-flip':
                 aug_id = 1
             elif aug_string == 'vertical-flip':
@@ -925,6 +928,10 @@ def compose_image_data(image_name, original_image_shape, image_shape):
             else:
                 print(f"compose_image_data: parsing image name with unknown augmentation: {image_name}")
                 aug_id = 5
+    try:
+        image_id = int(image_id) #Get numbers in the image_id string, if there are none this would throw index out of range exception
+    except:
+        image_id = ''.join([f"{ord(i):0>3}" for i in image_id]) #Convert each character into its ASCII identifier, we can deconvolve this back into characters
     data = np.array(
         [image_id]+                     # size=1
         list(original_image_shape)+     # size=2

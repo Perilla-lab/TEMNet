@@ -41,11 +41,11 @@ class Config(object):
 
     LOGS = os.path.join(PATH_PREFIX, 'logs')   # SAVE PATH FOR LOGS
     WEIGHT_PATH = os.path.join(PATH_PREFIX, 'weights')                 # SAVE PATH FOR CHECKPOINTS
-    TRAIN_PATH = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_augmented','train')                             # PATH FOR TRAINING DATA DIRECTORY
-    VAL_PATH = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_augmented','val')                             # PATH FOR VALIDATION DATA DIRECTORY
-    TRAIN_PATH_NOAUG = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_full','train')                             # PATH FOR TRAINING DATA BEFORE AUGMENTATIONS
-    VAL_PATH_NOAUG = os.path.join(PATH_PREFIX, 'dataset','rcnn_dataset_full','val')                                 # PATH FOR VALIDATION DATA BEFORE_AUGMENTATIONS
-    IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn')                     # PATH FOR GENERAL IMG SETS
+    TRAIN_PATH = os.path.join(PATH_PREFIX, 'dataset','rcnn_multiviral_dataset_augmented','train')                             # PATH FOR TRAINING DATA DIRECTORY
+    VAL_PATH = os.path.join(PATH_PREFIX, 'dataset','rcnn_multiviral_dataset_augmented','val')                             # PATH FOR VALIDATION DATA DIRECTORY
+    TRAIN_PATH_NOAUG = os.path.join(PATH_PREFIX, 'dataset','rcnn_multiviral_dataset_full','train')                             # PATH FOR TRAINING DATA BEFORE AUGMENTATIONS
+    VAL_PATH_NOAUG = os.path.join(PATH_PREFIX, 'dataset','rcnn_multiviral_dataset_full','val')                                 # PATH FOR VALIDATION DATA BEFORE_AUGMENTATIONS
+    IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn_multiviral')                     # PATH FOR GENERAL IMG SETS
     #Weight sets for different backbones
     WEIGHT_SET_DICT = {
         'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
@@ -66,7 +66,7 @@ class Config(object):
     BATCH_SIZE = GPU_COUNT * IMAGES_PER_GPU # Number of images per batch on training
 
     #Number of epochs for training
-    EPOCHS = 100
+    EPOCHS = 50 #100
 
     #Backbone convolutional network to use
     #Implemented architectures: temnet, resnet50, resnet101, resnet152, resnet50v2, resnet101v2, resnet152v2, vgg, inception_resnetv2.
@@ -84,13 +84,36 @@ class Config(object):
     TOP_DOWN_PYRAMID_SIZE = 256
 
     #Number of classification classes (background + classes)
-    #In our case background, eccentric, mature, immature
-    NUM_CLASSES = 1+3
+    #In our case background, eccentric, mature, immature HIV
+    #And: adenovirus, astrovirus, cchf, cowpox, dengue, ebola, guanarito, influenza, lcm, lassa, machupo, marburg, nipah, virus, norovirus, orf, papilloma, pseudocowpox, rift, valley, rotavirus, sapovirus, tbe, westnile
+    NUM_CLASSES = 1+3+22
     #Dictionary containing class id and name info
     CLASS_INFO=[{"id":0,"name":"BG"},
                 {"id":1, "name": "eccentric"},
                 {"id":2,"name":"mature"},
-                {"id":3,"name":"immature"}]
+                {"id":3,"name":"immature"},
+                {"id":4,"name":"adenovirus"},
+                {"id":5,"name":"astrovirus"},
+                {"id":6,"name":"cchf"},
+                {"id":7,"name":"cowpox"},
+                {"id":8,"name":"dengue"},
+                {"id":9,"name":"ebola"},
+                {"id":10,"name":"guanarito"},
+                {"id":11,"name":"influenza"},
+                {"id":12,"name":"lcm"},
+                {"id":13,"name":"lassa"},
+                {"id":14,"name":"machupo"},
+                {"id":15,"name":"marburg"},
+                {"id":16,"name":"nipah_virus"},
+                {"id":17,"name":"norovirus"},
+                {"id":18,"name":"orf"},
+                {"id":19,"name":"papilloma"},
+                {"id":20,"name":"pseudocowpox"},
+                {"id":21,"name":"rift_valley"},
+                {"id":22,"name":"rotavirus"},
+                {"id":23,"name":"sapovirus"},
+                {"id":24,"name":"tbe"},
+                {"id":25,"name":"westnile"}]
 
     # Size of the image data array, this contains
     # image_id (size=1), original_image_size (size=2), image_size (size=2), crop_id (size=1), aug_id (size=1)
@@ -166,6 +189,8 @@ class Config(object):
     BASE_MAGNIFICATION = 30000 # Magnification of TEM micrographs used for training
     BASE_CROP_SIZE = 1024 # pixels, size of the cropped micrographs used for training
     BASE_CROP_STEP = 500 # pixels, size of the steps for the overlapping cropped micrographs used for training
+    MEAN_PIXEL = np.array([131.51, 131.51, 131.51])
+    STD_PIXEL = np.array([47.11, 47.11, 47.11])
 
     #Learning rate for model optimizer, since the model momentum is high we need to keep this down to stop ourselves from overstepping the minima
     #LEARNING_RATE = 0.000000000000001
@@ -207,8 +232,8 @@ class Config(object):
         backbone: Backbone convolutional archiitecture to use for training and inference
         """
         #Verify that train and validation paths exist
-        # assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
-        # assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
+        assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
+        assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
         assert(backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
         self.BACKBONE = backbone
@@ -217,7 +242,7 @@ class Config(object):
             self.FPN_CLASSIF_FC_LAYERS_SIZE = self.FPN_CLASSIF_FC_LAYERS_SIZE_TEMNET
         else:
             self.FPN_CLASSIF_FC_LAYERS_SIZE = self.FPN_CLASSIF_FC_LAYERS_SIZE_RESNET
-
+ 
 
     def to_dict(self):
         """Returns a dictionary with all the attributes of the config class"""
@@ -460,7 +485,8 @@ class Dataset(Sequence):
         """
 
         # print("classes:Dataset: preprocessing image")
-        return image.astype(np.float32)# - self.config.MEAN_PIXEL 
+        return (image.astype(np.float32) - self.config.MEAN_PIXEL ) / self.config.STD_PIXEL
+        #return image.astype(np.float32)# - self.config.MEAN_PIXEL 
     # In the original mask-rpn code the masks were black and white images so this was necessary to erase outliers and make sure the maks pixels were truth to bounding boxes.-JR
 
     def augment(self, img, bboxes_coords, config):
