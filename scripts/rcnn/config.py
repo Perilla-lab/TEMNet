@@ -235,7 +235,7 @@ class Config(object):
         assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
         assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
-        assert(backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
+        assert(backbone in ['temnet', 'resnet101', 'resnet101v2', 'inception_resnetv2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
         self.BACKBONE = backbone
         self.WEIGHT_SET = self.WEIGHT_SET_DICT[self.BACKBONE]
         if(self.BACKBONE == 'temnet'):

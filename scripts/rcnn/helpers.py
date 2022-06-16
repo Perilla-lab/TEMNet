@@ -1,8 +1,10 @@
 #Losses for the RPN and RCNN models
 #import numpy as np
 #import os, csv, re, sys, cv2
+from boto import config
 import tensorflow as tf
 from tensorflow.keras import backend
+import tensorflow.keras.layers as KL
 
 import input_pipeline as I
 
@@ -157,6 +159,89 @@ def rcnn_bbox_loss(config, target_bbox, target_class_ids, pred_bbox):
     # Add the L1 loss
     loss = backend.switch(tf.size(input=target_bbox)>0, smooth_L1_loss(target_bbox, pred_bbox), tf.constant(0.0))
     return backend.mean(loss)
+
+#**************************CONVERT LOSSES TO LAYERS************
+""" # Regularizer class from keras documentation as reference
+class MyActivityRegularizer(Layer):
+  #Layer that creates an activity sparsity regularization loss.
+
+  def __init__(self, rate=1e-2):
+    super(MyActivityRegularizer, self).__init__()
+    self.rate = rate
+
+  def call(self, inputs):
+    # We use `add_loss` to create a regularization loss
+    # that depends on the inputs.
+    self.add_loss(self.rate * tf.reduce_sum(tf.square(inputs)))
+    return inputs
+# These definitions replace the KL.Lambda layers and add loss in the layers so they are automatically found at compile time
+rpn_class_loss = KL.Lambda(lambda x: H.rpn_match_loss(*x), name="rpn_class_loss")([input_rpn_match, rpn_class_logits])
+rpn_bbox_loss = KL.Lambda(lambda x: H.rpn_bbox_loss(self.config, *x), name="rpn_bbox_loss")([input_rpn_match, input_rpn_bbox, rpn_bbox])
+class_loss = KL.Lambda(lambda x: H.rcnn_class_loss(*x), name="rcnn_class_loss")([target_class_ids, rcnn_class_logits])
+bbox_loss = KL.Lambda(lambda x: H.rcnn_bbox_loss(self.config, *x), name="rcnn_bbox_loss")([target_bbox, target_class_ids, rcnn_bbox])
+
+"""
+class RPNBBoxLoss(KL.Layer):
+  """Layer that creates an activity sparsity regularization loss."""
+  #Gonn be called like rpn_bbox_loss = KL.Lambda(lambda x: H.rpn_bbox_loss(self.config, *x), name="rpn_bbox_loss")([input_rpn_match, input_rpn_bbox, rpn_bbox])
+  def __init__(self, config, name="rpn_bbox_loss", **kwargs):
+    super(RPNBBoxLoss, self).__init__(**kwargs)
+    self.config = config
+    self.name = name
+
+  def call(self, inputs):
+    input_rpn_match = inputs[0]
+    input_rpn_bbox = inputs[1]
+    rpn_bbox = inputs[2]
+    rpn_bbox_loss_output = rpn_bbox_loss(self.config, input_rpn_match, input_rpn_bbox, rpn_bbox)
+    # We use `add_loss` to create a regularization loss
+    # that depends on the inputs.
+    #self.add_loss(self.rate * tf.reduce_sum(tf.square(inputs)))
+    self.add_loss(tf.reduce_mean(input_tensor=rpn_bbox_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    return rpn_bbox_loss_output
+
+class RPNClassLoss(KL.Layer):
+  """Layer that creates an activity sparsity regularization loss."""
+  def __init__(self, config, name="rpn_class_loss", **kwargs):
+    super(RPNClassLoss, self).__init__(**kwargs)
+    self.config = config
+    self.name = name
+
+  def call(self, inputs):
+    input_rpn_match = inputs[0]
+    rpn_class_logits = inputs[1]
+    rpn_class_loss_output = rpn_match_loss(input_rpn_match, rpn_class_logits)
+    self.add_loss(tf.reduce_mean(input_tensor=rpn_class_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    return rpn_class_loss_output
+
+class RCNNClassLoss(KL.Layer):
+  """Layer that creates an activity sparsity regularization loss."""
+  def __init__(self, config, name="rcnn_class_loss", **kwargs):
+    super(RCNNClassLoss, self).__init__(**kwargs)
+    self.config = config
+    self.name = name
+
+  def call(self, inputs):
+    target_class_ids = inputs[0]
+    rcnn_class_logits = inputs[1]
+    rcnn_class_loss_output = rcnn_class_loss(target_class_ids, rcnn_class_logits)
+    self.add_loss(tf.reduce_mean(input_tensor=rcnn_class_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    return rcnn_class_loss_output
+
+class RCNNBBoxLoss(KL.Layer):
+  """Layer that creates an activity sparsity regularization loss."""
+  def __init__(self, config, name="rcnn_bbox_loss", **kwargs):
+    super(RCNNBBoxLoss, self).__init__(**kwargs)
+    self.config = config
+    self.name = name
+
+  def call(self, inputs):
+    target_bbox = inputs[0]
+    target_class_ids = inputs[1]
+    rcnn_bbox = inputs[2]
+    rcnn_bbox_loss_output = rcnn_bbox_loss(self.config, target_bbox, target_class_ids, rcnn_bbox)
+    self.add_loss(tf.reduce_mean(input_tensor=rcnn_bbox_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    return rcnn_bbox_loss_output
 
 #**************************ACCURACY METRICS ******************************
 #TODO: mAP doesn't seem to be working when appended to the metrics for training, possible solution might be changing it to use only tf functions and tf tensors

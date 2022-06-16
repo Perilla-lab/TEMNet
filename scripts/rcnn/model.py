@@ -1558,17 +1558,21 @@ class RCNN(object):
             
             # Loss functions
             # GT inputs to RPN
-            rpn_class_loss = KL.Lambda(lambda x: H.rpn_match_loss(*x), name="rpn_class_loss")(
-                                       [input_rpn_match, rpn_class_logits])
+            #rpn_class_loss = KL.Lambda(lambda x: H.rpn_match_loss(*x), name="rpn_class_loss")(
+            #                           [input_rpn_match, rpn_class_logits])
+            rpn_class_loss = H.RPNClassLoss(self.config, name="rpn_class_loss")([input_rpn_match, rpn_class_logits])
             """print("model input_rpn match", input_rpn_match.shape)
             print("model input_rpn_bbox", input_rpn_bbox.shape)
             print("model rpn_bbox", rpn_bbox.shape)"""
-            rpn_bbox_loss = KL.Lambda(lambda x: H.rpn_bbox_loss(self.config, *x), name="rpn_bbox_loss")(
-                                      [input_rpn_match, input_rpn_bbox, rpn_bbox])
+            #rpn_bbox_loss = KL.Lambda(lambda x: H.rpn_bbox_loss(self.config, *x), name="rpn_bbox_loss")(
+            #                          [input_rpn_match, input_rpn_bbox, rpn_bbox])
+            rpn_bbox_loss = H.RPNBBoxLoss(self.config, name="rpn_bbox_loss")([input_rpn_match, input_rpn_bbox, rpn_bbox])
             if not self.config.TRAIN_ONLY_RPN:
                 class_loss = KL.Lambda(lambda x: H.rcnn_class_loss(*x), name="rcnn_class_loss")([target_class_ids, rcnn_class_logits])
+                class_loss = H.RCNNClassLoss(self.config, name="rcnn_class_loss")([target_class_ids, rcnn_class_logits])
                 # print("->model class_loss calculated succesfully", class_loss)
-                bbox_loss = KL.Lambda(lambda x: H.rcnn_bbox_loss(self.config, *x), name="rcnn_bbox_loss")([target_bbox, target_class_ids, rcnn_bbox])
+                #bbox_loss = KL.Lambda(lambda x: H.rcnn_bbox_loss(self.config, *x), name="rcnn_bbox_loss")([target_bbox, target_class_ids, rcnn_bbox])
+                bbox_loss = H.RCNNBBoxLoss(self.config, name="rcnn_bbox_loss")([target_bbox, target_class_ids, rcnn_bbox])
                 #mAP_accuracy = KL.Lambda(lambda x: H.mAP_accuracy(target_bbox, target_class_ids, rcnn_bbox, rcnn_class, rcnn_class_logits))
                 #Inputs and outputs of the model
                 inputs = [input_image, input_image_data, input_rpn_match, input_rpn_bbox,
@@ -1656,24 +1660,29 @@ class RCNN(object):
         # Add Losses
         #self.model._losses = []
         #self.model._per_input_losses = {}
+        #Losses should have been added at the layer level using the RPN and RCNN classes in the helper module. Print them here to ensur we got the correct amount of losses
+        print('RCNN compile: Losses before adding L2 regularization',self.keras_model.losses)
         if not self.config.TRAIN_ONLY_RPN:
             loss_names = ["rpn_class_loss", "rpn_bbox_loss",
                           "rcnn_class_loss", "rcnn_bbox_loss"]
         else:
             loss_names = ["rpn_class_loss", "rpn_bbox_loss"]
+        """
         for name in loss_names:
             layer = self.keras_model.get_layer(name)
             #if layer.output in self.keras_model.losses:
             #    continue
             loss = (tf.reduce_mean(input_tensor=layer.output, keepdims=True) * self.config.LOSS_WEIGHTS.get(name, 1.))
             self.keras_model.add_loss(loss)
-            
+        """
+
         #Add L2 Regularization to avoid overfitting
         reg_losses = [
             KR.l2(self.config.WEIGHT_DECAY)(w) / tf.cast(tf.size(input=w), tf.float32)
             for w in self.keras_model.trainable_weights
             if 'gamma' not in w.name and 'beta' not in w.name]
         self.keras_model.add_loss(tf.add_n(reg_losses))
+        print('RCNN compile: Losses after adding L2 regularization',self.keras_model.losses)
 
         #Compile the model
         # self.keras_model.compile(optimizer=optimizer, loss=[None] * len(self.keras_model.outputs), metrics = ['accuracy'])
