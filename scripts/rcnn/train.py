@@ -57,6 +57,13 @@ def train_model(backbone='temnet', weights_path=None, n_gpu='0'):
             print("No weights loaded.")
         hist, lrm = rcnn.train(dataset)
         print("--------------------RCNN model trained---------------------")
+        #Save losses on a file in case automated visualization fails
+        with open(f'RCNN_BENCHMARKS_losses_{backbone}.csv', 'w') as lossfile:
+            for tl,vl in zip(hist.history['loss'], hist.history['val_loss']):
+                lossfile.write("{},{}".format(tl, vl))
+        with open(f'RCNN_BENCHMARKS_lr_{backbone}.csv', 'w') as lrfile:
+            for i,lr in enumerate(lrm.lrates):
+                lrfile.write("{},{}".format(i, lr))
         V.visualize_benchmarks(hist.history['loss'], hist.history['val_loss'], config)
         V.visualize_learning_rate(lrm.lrates, config)
 

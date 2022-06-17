@@ -11,6 +11,10 @@ from tensorflow.keras.utils import Sequence
 import numpy as np
 import time
 
+#Ensure load_img will load all images to avoid possible lazy read errors
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 import input_pipeline as I
 
 """
@@ -63,7 +67,7 @@ class Config(object):
 
     IMAGES_PER_GPU = 2 # A 12GB GPU normally can handle 2 1024x10124px images with no problem
     #BATCH_SIZE = 5 #Number of images per batch on training
-    BATCH_SIZE = GPU_COUNT * IMAGES_PER_GPU # Number of images per batch on training
+    BATCH_SIZE = 1 # GPU_COUNT * IMAGES_PER_GPU # Number of images per batch on training
 
     #Number of epochs for training
     EPOCHS = 50 #100
@@ -342,7 +346,7 @@ class Dataset(Sequence):
 
         for batch_id in range(len(image_ids)):# range(self.config.BATCH_SIZE): #For each image in the batch
             #Prepare the dataset, here we get the image, ground truth tboxes and ground truth labels of each image
-            # print("classes:Dataset: get_bboxes for image ", image_ids[batch_id])
+            print("classes:Dataset: get_bboxes for image ", image_ids[batch_id])
             imgToLoad = image_ids[batch_id].replace('/',' ')
             img = self.load_image(imgToLoad)
             img_data = I.compose_image_data(image_ids[batch_id], self.config.DATASET_IMAGE_SIZE,self.config.IMAGE_SHAPE)
@@ -646,7 +650,9 @@ if __name__ == '__main__':
     config = Config(backbone=args.backbone)
     config.display()
     dataset=Dataset(config.TRAIN_PATH, config, "train")
+    """
     for i in range(len(dataset)):# Every batch
+      try:
         inputs=dataset[i][0]
         images_gt=inputs[0] # A batch of images
         images_data=inputs[1]
@@ -662,7 +668,14 @@ if __name__ == '__main__':
             print(f"gt_class_ids from dataset {imgName}: {gt_class_ids}")
             gt_boxes = inputs[5][j]
             print(f"gt_boxes from dataset {imgName}: {gt_boxes}")
-        # print(f"dataset 0:\n {dataset[0]}")
-        # print(f"dataset outputs:\n {dataset[0][1]}")
-        # print(f"dataset inputs img_data:\n {dataset[0][0][1]}")
-        # print(f"dataset inputs img_classes:\n {dataset[0][0][4]}")
+      except Exception as e:
+        print("FAILED",e)
+    """
+    print(f"dataset 0:\n {dataset[0]}")
+    print(f"dataset 0 shape:\n {dataset[0].shape}")
+    print(f"dataset outputs:\n {dataset[0][1]}")
+    print(f"dataset outputs:\n {dataset[0][1].shape}")
+    print(f"dataset inputs img_data:\n {dataset[0][0][1]}")
+    print(f"dataset inputs img_data:\n {dataset[0][0][1].shape}")
+    print(f"dataset inputs img_classes:\n {dataset[0][0][4]}")
+    print(f"dataset inputs img_classes:\n {dataset[0][0][4].shape}")

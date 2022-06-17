@@ -45,7 +45,7 @@ class LearningRateMonitor(Callback):
 	def on_epoch_end(self, epoch, logs={}):
 		# get and store the learning rate
 		optimizer = self.model.optimizer
-		lrate = float(backend.get_value(self.model.optimizer.lr))
+		lrate = float(backend.get_value(self.model.optimizer.learning_rate))
 		self.lrates.append(lrate)
 
 
@@ -1568,7 +1568,7 @@ class RCNN(object):
             #                          [input_rpn_match, input_rpn_bbox, rpn_bbox])
             rpn_bbox_loss = H.RPNBBoxLoss(self.config, name="rpn_bbox_loss")([input_rpn_match, input_rpn_bbox, rpn_bbox])
             if not self.config.TRAIN_ONLY_RPN:
-                class_loss = KL.Lambda(lambda x: H.rcnn_class_loss(*x), name="rcnn_class_loss")([target_class_ids, rcnn_class_logits])
+                #class_loss = KL.Lambda(lambda x: H.rcnn_class_loss(*x), name="rcnn_class_loss")([target_class_ids, rcnn_class_logits])
                 class_loss = H.RCNNClassLoss(self.config, name="rcnn_class_loss")([target_class_ids, rcnn_class_logits])
                 # print("->model class_loss calculated succesfully", class_loss)
                 #bbox_loss = KL.Lambda(lambda x: H.rcnn_bbox_loss(self.config, *x), name="rcnn_bbox_loss")([target_bbox, target_class_ids, rcnn_bbox])
@@ -1654,7 +1654,7 @@ class RCNN(object):
         """
         #tf.compat.v1.enable_eager_execution()
         # Create the optimizer
-        optimizer = KO.SGD(lr=self.config.LEARNING_RATE, momentum=self.config.LEARNING_MOMENTUM,
+        optimizer = KO.SGD(learning_rate=self.config.LEARNING_RATE, momentum=self.config.LEARNING_MOMENTUM,
                            clipnorm=self.config.GRADIENT_CLIP_NORM)
 
         # Add Losses
@@ -1662,12 +1662,13 @@ class RCNN(object):
         #self.model._per_input_losses = {}
         #Losses should have been added at the layer level using the RPN and RCNN classes in the helper module. Print them here to ensur we got the correct amount of losses
         print('RCNN compile: Losses before adding L2 regularization',self.keras_model.losses)
+
+        """
         if not self.config.TRAIN_ONLY_RPN:
             loss_names = ["rpn_class_loss", "rpn_bbox_loss",
                           "rcnn_class_loss", "rcnn_bbox_loss"]
         else:
             loss_names = ["rpn_class_loss", "rpn_bbox_loss"]
-        """
         for name in loss_names:
             layer = self.keras_model.get_layer(name)
             #if layer.output in self.keras_model.losses:
@@ -1675,20 +1676,25 @@ class RCNN(object):
             loss = (tf.reduce_mean(input_tensor=layer.output, keepdims=True) * self.config.LOSS_WEIGHTS.get(name, 1.))
             self.keras_model.add_loss(loss)
         """
-
+        #NOTE: UNCOMMENT THIS FOR FINAL RUN XXX
+        """
         #Add L2 Regularization to avoid overfitting
         reg_losses = [
             KR.l2(self.config.WEIGHT_DECAY)(w) / tf.cast(tf.size(input=w), tf.float32)
             for w in self.keras_model.trainable_weights
             if 'gamma' not in w.name and 'beta' not in w.name]
-        self.keras_model.add_loss(tf.add_n(reg_losses))
+        self.keras_model.add_loss(lambda: tf.add_n(reg_losses))
+        """
         print('RCNN compile: Losses after adding L2 regularization',self.keras_model.losses)
+        print('RCNN compile: Metrics after adding L2 regularization',self.keras_model.metrics)
 
         #Compile the model
         # self.keras_model.compile(optimizer=optimizer, loss=[None] * len(self.keras_model.outputs), metrics = ['accuracy'])
         self.keras_model.compile(optimizer=optimizer, loss=[None] * len(self.keras_model.outputs))
 
+        """
         # Add metrics for losses
+        # Metrics already added on the Loss layer definitions
         for name in loss_names:
             if name in self.keras_model.metrics_names:
                 continue
@@ -1697,6 +1703,7 @@ class RCNN(object):
             loss = (tf.reduce_mean(input_tensor=layer.output, keepdims=True) * self.config.LOSS_WEIGHTS.get(name, 1.))
             self.keras_model.metrics_tensors.append(loss) # TODO: WHERE IS METRICS_TENSORS?
             #self.keras_model.add_metric(loss, name=name, aggregation='mean')
+        """
 
     def train(self, dataset):
         """
@@ -1730,9 +1737,11 @@ class RCNN(object):
         # Train the model
         #history = self.keras_model.fit_generator(dataset["train"], len(dataset["train"]), epochs=self.config.EPOCHS, callbacks=callbacks,
         #                         validation_data=dataset["validation"], validation_steps=len(dataset["validation"]))
+        #According to the documentation validation steps should be specified for tf.data
         history = self.keras_model.fit(dataset["train"], steps_per_epoch=len(dataset["train"]), epochs=self.config.EPOCHS, callbacks=callbacks,
-                                 validation_data=dataset["validation"], validation_steps=len(dataset["validation"]))
+                                 validation_data=dataset["validation"], validation_steps=len(dataset["validation"]), workers = 48, use_multiprocessing=True)
         #history = self.keras_model.fit(dataset["train"], steps_per_epoch=len(dataset["train"]), epochs=self.config.EPOCHS, callbacks=callbacks)
+        #history = self.keras_model.fit(dataset["train"], steps_per_epoch=len(dataset["train"]), epochs=self.config.EPOCHS, callbacks=callbacks, workers = 48, use_multiprocessing=True)
         return history, lrm
 
     def load_weights(self, filepath, by_name=False, exclude=None):

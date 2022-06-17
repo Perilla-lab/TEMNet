@@ -1,7 +1,6 @@
 #Losses for the RPN and RCNN models
 #import numpy as np
 #import os, csv, re, sys, cv2
-from boto import config
 import tensorflow as tf
 from tensorflow.keras import backend
 import tensorflow.keras.layers as KL
@@ -184,10 +183,10 @@ bbox_loss = KL.Lambda(lambda x: H.rcnn_bbox_loss(self.config, *x), name="rcnn_bb
 class RPNBBoxLoss(KL.Layer):
   """Layer that creates an activity sparsity regularization loss."""
   #Gonn be called like rpn_bbox_loss = KL.Lambda(lambda x: H.rpn_bbox_loss(self.config, *x), name="rpn_bbox_loss")([input_rpn_match, input_rpn_bbox, rpn_bbox])
-  def __init__(self, config, name="rpn_bbox_loss", **kwargs):
+  def __init__(self, config, **kwargs):
     super(RPNBBoxLoss, self).__init__(**kwargs)
     self.config = config
-    self.name = name
+    #self.name = name
 
   def call(self, inputs):
     input_rpn_match = inputs[0]
@@ -197,50 +196,58 @@ class RPNBBoxLoss(KL.Layer):
     # We use `add_loss` to create a regularization loss
     # that depends on the inputs.
     #self.add_loss(self.rate * tf.reduce_sum(tf.square(inputs)))
-    self.add_loss(tf.reduce_mean(input_tensor=rpn_bbox_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    loss = tf.reduce_mean(input_tensor=rpn_bbox_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.)
+    self.add_loss(loss)
+    self.add_metric(loss, name=self.name, aggregation='mean')
     return rpn_bbox_loss_output
 
 class RPNClassLoss(KL.Layer):
   """Layer that creates an activity sparsity regularization loss."""
-  def __init__(self, config, name="rpn_class_loss", **kwargs):
+  def __init__(self, config, **kwargs):
     super(RPNClassLoss, self).__init__(**kwargs)
     self.config = config
-    self.name = name
+    #self.name = name
 
   def call(self, inputs):
     input_rpn_match = inputs[0]
     rpn_class_logits = inputs[1]
     rpn_class_loss_output = rpn_match_loss(input_rpn_match, rpn_class_logits)
-    self.add_loss(tf.reduce_mean(input_tensor=rpn_class_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    loss = tf.reduce_mean(input_tensor=rpn_class_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.)
+    self.add_loss(loss)
+    self.add_metric(loss, name=self.name, aggregation='mean')
     return rpn_class_loss_output
 
 class RCNNClassLoss(KL.Layer):
   """Layer that creates an activity sparsity regularization loss."""
-  def __init__(self, config, name="rcnn_class_loss", **kwargs):
+  def __init__(self, config, **kwargs):
     super(RCNNClassLoss, self).__init__(**kwargs)
     self.config = config
-    self.name = name
+    #self.name = name
 
   def call(self, inputs):
     target_class_ids = inputs[0]
     rcnn_class_logits = inputs[1]
     rcnn_class_loss_output = rcnn_class_loss(target_class_ids, rcnn_class_logits)
-    self.add_loss(tf.reduce_mean(input_tensor=rcnn_class_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    loss = tf.reduce_mean(input_tensor=rcnn_class_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.)
+    self.add_loss(loss)
+    self.add_metric(loss, name=self.name, aggregation='mean')
     return rcnn_class_loss_output
 
 class RCNNBBoxLoss(KL.Layer):
   """Layer that creates an activity sparsity regularization loss."""
-  def __init__(self, config, name="rcnn_bbox_loss", **kwargs):
+  def __init__(self, config, **kwargs):
     super(RCNNBBoxLoss, self).__init__(**kwargs)
     self.config = config
-    self.name = name
+    #self.name = name
 
   def call(self, inputs):
     target_bbox = inputs[0]
     target_class_ids = inputs[1]
     rcnn_bbox = inputs[2]
     rcnn_bbox_loss_output = rcnn_bbox_loss(self.config, target_bbox, target_class_ids, rcnn_bbox)
-    self.add_loss(tf.reduce_mean(input_tensor=rcnn_bbox_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.))
+    loss = tf.reduce_mean(input_tensor=rcnn_bbox_loss_output, keepdims=True) * self.config.LOSS_WEIGHTS.get(self.name, 1.)
+    self.add_loss(loss)
+    self.add_metric(loss, name=self.name, aggregation='mean')
     return rcnn_bbox_loss_output
 
 #**************************ACCURACY METRICS ******************************
