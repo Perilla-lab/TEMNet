@@ -242,6 +242,7 @@ def build_rpn_targets(anchors, gt_boxes, config):
     Outputs:
     rpn_match: [NUM_ANCHORS] matches between anchors and groun truth boxes following the convention:
             1 = positive anchor, -1 = negative anchor, 0 = neutral
+    rpn_class: [NUM_ANCHORS] binary class of anchors: 0 -> matches with GT, 1-> background
     rpn_bbox: [len(positive_anchors), (dy, dx, log(dh), log(dw))] Deltas for the anchor boxes to fit the GT boxes
     """
     # print("input_pipeline: build_rpn_targets")
