@@ -1416,6 +1416,8 @@ class RCNN(object):
         input_image = KL.Input(shape=[h, w,
                                        self.config.NUM_CHANNELS], name="input_image")
         input_image_data = KL.Input(shape=[self.config.IMAGE_DATA_SIZE], name="input_image_meta")
+        # Get anchors from input data
+        # input_anchors = KL.Input(shape=[None, 4], name="input_anchors")
         if mode == "train":
             # RPN GT
             input_rpn_match = KL.Input(
@@ -1439,8 +1441,8 @@ class RCNN(object):
             #Either normalize here or normalize on the dataset inputs
             # gt_boxes = KL.Lambda(lambda x: I.norm_boxes_tf(
             #     x, backend.shape(input_image)[1:3]))(input_gt_boxes)
-            gt_boxes = KL.Lambda(lambda x: I.norm_boxes_tf(
-                x, tf.convert_to_tensor(list(self.config.IMAGE_SHAPE))))(input_gt_boxes)
+            #gt_boxes = KL.Lambda(lambda x: I.norm_boxes_tf(
+            #    x, tf.convert_to_tensor(list(self.config.IMAGE_SHAPE))))(input_gt_boxes)
         elif mode == "inference":
             # Anchors in normalized coordinates
             input_anchors = KL.Input(shape=[None, 4], name="input_anchors")
@@ -1455,7 +1457,6 @@ class RCNN(object):
             rpn_feature_maps = [P2, P3, P4, P6]
             #RCNN feature maps don't use the last layer (P6) of the RPN
             rcnn_feature_maps = [P2, P3, P4]
-
         # Anchors
         if mode == "train":
             anchors = self.get_anchors(self.config.IMAGE_SHAPE)
@@ -1481,7 +1482,6 @@ class RCNN(object):
             # print(f"->build_entire_model anchors from ConstLayer: {anchors}")
         else:
             anchors = input_anchors
-
 
         # RPN Network
         rpn = self.build_rpn_model(self.config.RPN_ANCHOR_STRIDE, len(self.config.RPN_ANCHOR_RATIOS),
@@ -1515,7 +1515,7 @@ class RCNN(object):
         rpn_rois = ProposalLayer(proposal_count = max_roi_proposals,
                                  nms_threshold = self.config.RPN_NMS_THRESHOLD,
                                  name ="RPN_RoIs",
-                                 config=self.config)([rpn_class,rpn_bbox, anchors])
+                                 config=self.config)([rpn_class,rpn_bbox, input_anchors]) # anchors]) #XXX To go back to training and inference as different models
         #Instead of using the ProposalLayer for RoI generation we could use the positive anchors
         # This can be done since for our model there doesn't seem to be overlaps so we need no NMS
         # Using our inputs rpn_match, rpn_bbox and anchors we can find our positive anchors 
@@ -1540,7 +1540,7 @@ class RCNN(object):
 
             # Generate detection targets
             # Subsamples proposals and generates target outputs for training
-            rois, target_class_ids, target_bbox=DetectionTargetLayer(self.config, name="proposal_targets")([target_rois, input_gt_class_ids, gt_boxes]) #Use input_gt_boxes if those are already normalized
+            rois, target_class_ids, target_bbox=DetectionTargetLayer(self.config, name="proposal_targets")([target_rois, input_gt_class_ids, input_gt_boxes]) #Use input_gt_boxes if those are already normalized otherwise use gt_boxes
 
             # Network Heads
             # print(f"->build_entire_model config DATASET_IMAGE_SIZE: {self.config.DATASET_IMAGE_SIZE}")
@@ -1587,7 +1587,9 @@ class RCNN(object):
                 #print("output shapes: \nrpn_class_logits {} \nrpn_class {} \nrpn_bbox {} \nrpn_class_loss {} \nrpn_bbox_loss {}".format(rpn_class_logits.shape, rpn_class.shape, rpn_bbox.shape, rpn_class_loss.shape, rpn_bbox_loss.shape))
             else: #Inputs/Outputs for training only RPN
                 inputs = [input_image, input_rpn_match, input_rpn_bbox]
-                outputs = [rpn_class_logits, rpn_class, rpn_bbox, rpn_class_loss, rpn_bbox_loss]
+                #outputs = [rpn_class_logits, rpn_class, rpn_bbox, rpn_class_loss, rpn_bbox_loss]
+                # Skip logits since we dont want to make arrays with infinite and -infinite and pass them as training data
+                outputs = [rpn_class, rpn_bbox, rpn_class_loss, rpn_bbox_loss]
 
         else: #mode =="inference"
             # Network Heads
@@ -1868,7 +1870,7 @@ class RCNN(object):
         # print(f"RCNN-> predict_batch rcnn_bbox: {rcnn_bbox}")
         rpn_rois = np.squeeze(rpn_rois)
         # print(f"RCNN-> predict_batch rpn_rois: {rpn_rois}")
-        rpn_class = np.squeeze(rcnn_class)
+        rpn_class = np.squeeze(rpn_class)
         # print(f"RCNN-> predict_batch rpn_class: {rpn_class}")
         rpn_bbox = np.squeeze(rpn_bbox)
         # print(f"RCNN-> predict_batch rpn_bbox: {rpn_bbox}")
@@ -1917,7 +1919,7 @@ class RCNN(object):
         # print(f"RCNN-> predict_batch rcnn_bbox: {rcnn_bbox}")
         rpn_rois = np.squeeze(rpn_rois)
         # print(f"RCNN-> predict_batch rpn_rois: {rpn_rois}")
-        rpn_class = np.squeeze(rcnn_class)
+        rpn_class = np.squeeze(rpn_class)
         # print(f"RCNN-> predict_batch rpn_class: {rpn_class}")
         rpn_bbox = np.squeeze(rpn_bbox)
         # print(f"RCNN-> predict_batch rpn_bbox: {rpn_bbox}")

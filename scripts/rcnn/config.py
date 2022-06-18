@@ -5,6 +5,7 @@ Base Configuration, Dataset and utility classes
 Developed by Hagan Beatson, Alex Brier and Juan Rey @ Perillalab University of Delaware (2020)
 """
 
+from matplotlib.pyplot import axis
 import cv2, copy, os, argparse
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
 from tensorflow.keras.utils import Sequence
@@ -337,6 +338,8 @@ class Dataset(Sequence):
         batch_img_data = np.zeros((self.config.BATCH_SIZE, self.config.IMAGE_DATA_SIZE)) #Img id, og size and size after resizing
         #Which anchors are positive, negative and neutral
         batch_rpn_match = np.zeros((self.config.BATCH_SIZE, self.anchors.shape[0], 1))
+        # Hack the matches into 1 for positive an 0 for negative and neutral and give this as output
+        batch_rpn_class = np.zeros((self.config.BATCH_SIZE, self.anchors.shape[0], 1))
         #Deltas for the anchors
         batch_rpn_bbox = np.zeros((self.config.BATCH_SIZE, self.config.ANCHORS_PER_IMG, 4))
         #The class for each of the positive anchors (those that match with a GT Box)
@@ -363,7 +366,7 @@ class Dataset(Sequence):
 
             #Generate RPN Targets
             # print("classes:Dataset: getting matches and targets from rpn_targets ")
-            rpn_match, rpn_bbox = I.build_rpn_targets(self.anchors, gt_boxes, self.config)
+            rpn_match, rpn_class, rpn_bbox = I.build_rpn_targets(self.anchors, gt_boxes, self.config)
 
             # Generate RCNN Targets if necessary
             if self.random_rois:
@@ -385,13 +388,15 @@ class Dataset(Sequence):
                 gt_boxes = gt_boxes[sample]
                 #Normalize boxes now so we don't have to in the classifier
                 #On second thought don't so we can use these inputs to calculate the mAP
-                #gt_boxes = I.norm_boxes(gt_boxes, self.config.IMAGE_SHAPE)
+                # On third thought do normalize so we can compare gt_boxes to rois directly, mAP is calculated as a percentage anyway
+                gt_boxes = I.norm_boxes(gt_boxes, self.config.IMAGE_SHAPE)
             # gt_class_ids = self.change_label_to_num(gt_class_labs, self.config.CLASS_INFO)
 
             #And add the data to the batch arrays
             batch_imgs[batch_id]=self.preprocess_image(img)
             batch_img_data[batch_id]=img_data
             batch_rpn_match[batch_id]=np.expand_dims(rpn_match, axis=1)
+            batch_rpn_class[batch_id]=np.expand_dims(rpn_class, axis=1)
             batch_rpn_bbox[batch_id]=rpn_bbox
             batch_gt_class_ids[batch_id,:gt_class_ids.shape[0]]=gt_class_ids
             batch_gt_boxes[batch_id,:gt_boxes.shape[0]]=gt_boxes
@@ -406,11 +411,25 @@ class Dataset(Sequence):
         # print(f"-> Dataset: batch_gt_class_ids: \n {batch_gt_class_ids.shape}")
         if self.train_only_rpn:
             inputs = [batch_imgs, batch_rpn_match, batch_rpn_bbox]
-            outputs = []
+            # TF2.1 version of the model required
+            #outputs = [rpn_class_logits, rpn_class, rpn_bbox, rpn_class_loss, rpn_bbox_loss]
+            # Skipping rpn_class_logits since on the for ground truth probability 0 and 1 results in -infty and infty logits
+            # Last two arrays are losses which should approac zero on training [In fact we don't even need to return these but just making sure they make part of the graph]
+            outputs = [batch_rpn_class,batch_rpn_bbox, np.zeros(config.BATCH_SIZE), np.zeros(config.BATCH_SIZE)]
         else:
             inputs = [batch_imgs, batch_img_data, batch_rpn_match, batch_rpn_bbox,
                       batch_gt_class_ids, batch_gt_boxes]
-            outputs = []
+            # TF2.1 version of the model required
+            #outputs = [rpn_class_logits, rpn_class, rpn_bbox,
+            #               rcnn_class_logits, rcnn_class, rcnn_bbox,
+            #               rpn_rois, output_rois,
+            #               rpn_class_loss, rpn_bbox_loss,
+            #               class_loss, bbox_loss]
+            outputs = [batch_rpn_class, batch_rpn_bbox,
+                        batch_rcnn_class_ids, batch_rcnn_bbox,
+                        batch_gt_boxes, batch_gt_boxes, #Make sure these are normalized so they can be compared to rois
+                        np.zeros(config.BATCH_SIZE), np.zeros(config.BATCH_SIZE),
+                        np.zeros(config.BATCH_SIZE), np.zeros(config.BATCH_SIZE)]
 
         # Add inputs and outputs according to the training procedure
         if self.random_rois:

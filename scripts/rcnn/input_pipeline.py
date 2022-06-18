@@ -247,6 +247,7 @@ def build_rpn_targets(anchors, gt_boxes, config):
     # print("input_pipeline: build_rpn_targets")
     # Prepping array sizes
     rpn_match = np.zeros(anchors.shape[0], dtype=np.int32) #Used to be float but it's not necessary
+    rpn_class = np.zeros(anchors.shape[0], dtype=np.int32) #Used to be float but it's not necessary
     rpn_bbox = np.zeros((config.ANCHORS_PER_IMG, 4), dtype=np.float32)
 
     # Generate IoU values for all anchors and bboxes
@@ -349,10 +350,11 @@ def build_rpn_targets(anchors, gt_boxes, config):
         #Normalize adjustment using the std dev, THIS DEPENDS ON THE NETWORK USED
         anchor_deltas /= config.RPN_BBOX_STD_DEV
         rpn_bbox[idx] = anchor_deltas
+    rpn_class = (rpn_match==1).astype(np.int32)
     # print("rpn_match", rpn_match.shape) # shape = #of anchors
     # print("rpn_bbox", rpn_bbox.shape) # shape = config #of anchors per image, 4
     # print("input_pipeline: rpn_targets done")
-    return rpn_match, rpn_bbox
+    return rpn_match, rpn_class, rpn_bbox
 
 def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, config):
     """Generate targets for training Stage 2 classifier and mask heads.

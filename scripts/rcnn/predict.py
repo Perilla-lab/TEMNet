@@ -68,7 +68,7 @@ def predict_batch(images, image_metas, config, keras_model):
   rcnn_class = np.squeeze(rcnn_class)
   rcnn_bbox = np.squeeze(rcnn_bbox)
   rpn_rois = np.squeeze(rpn_rois)
-  rpn_class = np.squeeze(rcnn_class)
+  rpn_class = np.squeeze(rpn_class)
   rpn_bbox = np.squeeze(rpn_bbox)
   #Now divide the detections into their components
   results = []

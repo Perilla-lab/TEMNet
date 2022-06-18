@@ -160,7 +160,8 @@ def rcnn_bbox_loss(config, target_bbox, target_class_ids, pred_bbox):
     return backend.mean(loss)
 
 #**************************CONVERT LOSSES TO LAYERS************
-""" # Regularizer class from keras documentation as reference
+"""
+# Regularizer class from keras documentation as reference
 class MyActivityRegularizer(Layer):
   #Layer that creates an activity sparsity regularization loss.
 
