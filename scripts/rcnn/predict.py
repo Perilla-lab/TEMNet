@@ -480,14 +480,20 @@ def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config, rc
     img_name = img_path.split('/')[-1]
     #Keep the counts to write a csv file
     #classes = ['eccentric','mature','immature']
-    class_counts = np.zeros(3) #Start at zero
+    map_dict = dict(d.values() for d in config.CLASS_INFO)
+    classes = np.array(list(map_dict.values()))
+    class_counts = np.zeros(len(classes)) #Start counting at zero
+    #class_counts = np.zeros(3) #Start at zero
     present_class_id, counts = np.unique(pred_class_ids, return_counts=True) #And count those present
     if len(counts) != 0:
-      class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+      #class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+      class_counts[present_class_id]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_pred_counts.append(class_counts)
-    class_counts = np.zeros(3) #Start at zero
+    class_counts = np.zeros(len(classes)) #Start counting at zero
+    #class_counts = np.zeros(3) #Start at zero
     present_class_id, counts = np.unique(gt_class_ids, return_counts=True) #And count those present
-    class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+    #class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+    class_counts[present_class_id]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_gt_counts.append(class_counts)
     all_img_names.append(img_name)
     all_fp_counts.append(fp_count)
@@ -541,14 +547,20 @@ def predict_all_uncropped_metrics(img_paths, csv_paths, crop_size, crop_step, co
     img_name = img_path.split('/')[-1]
     #Keep the counts to write a csv file
     #classes = ['eccentric','mature','immature']
-    class_counts = np.zeros(3) #Start at zero
+    map_dict = dict(d.values() for d in config.CLASS_INFO)
+    classes = np.array(list(map_dict.values()))
+    class_counts = np.zeros(len(classes)) #Start counting at zero
+    #class_counts = np.zeros(3) #Start at zero
     present_class_id, counts = np.unique(pred_class_ids, return_counts=True) #And count those present
     if len(counts) != 0:
-      class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+      #class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+      class_counts[present_class_id]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_pred_counts.append(class_counts)
-    class_counts = np.zeros(3) #Start at zero
+    class_counts = np.zeros(len(classes)) #Start counting at zero
+    #class_counts = np.zeros(3) #Start at zero
     present_class_id, counts = np.unique(gt_class_ids, return_counts=True) #And count those present
-    class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+    #class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+    class_counts[present_class_id]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_gt_counts.append(class_counts)
     all_img_names.append(img_name)
     print(f"Class counts on image {img_name}: {class_counts}")
@@ -593,6 +605,29 @@ def write_counts_csv(csvname, img_names, gt_counts, pred_counts, fp_counts):
                        'immature_pred': pred_counts[i][2],
                        'false_positives': fp_counts[i]
       })
+
+def write_counts_multiviral_csv(csvname, img_names, gt_counts, pred_counts, fp_counts, class_names):
+  with open(csvname, mode='w', newline='') as labels:
+    fields = ['#filename']
+    for cn in class_names:
+      fields.append(cn+'_gt')
+      fields.append(cn+'_pred')
+    fields.append('false_positives')
+
+    writer = csv.DictWriter(labels,
+                            fieldnames=fields,
+                            dialect='excel',
+    quoting=csv.QUOTE_MINIMAL)
+  
+    writer.writeheader()
+    for i in range(len(gt_counts)):
+      fielddicts = [{'field':'#fieldname','value':img_names[i]}]
+      for j,cn in enumerate(class_names):
+        fielddicts.append({'field':cn+'_gt','value':gt_counts[i][j]})
+        fielddicts.append({'field':cn+'_pred','value':pred_counts[i][j]})
+      fielddicts.append({'field':'false_positives','value':fp_counts[i]})
+      rowdict = dict(d.values() for d in fielddicts)
+      writer.writerow(rowdict)
       
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -625,6 +660,8 @@ if __name__ == '__main__':
   # Only load weights once
   rcnn = RCNN(config, 'inference')
   rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
+  map_dict = dict(d.values() for d in config.CLASS_INFO)
+  class_names = np.array(list(map_dict.values()))
 
   if(args.data == 'dataset_all'):
     datasets = {"train": Dataset(config.TRAIN_PATH, config, "train"), "validation": Dataset(config.VAL_PATH, config, "validation")}
@@ -659,12 +696,12 @@ if __name__ == '__main__':
     #Sequentially predict on the uncropped images and store their class ids
     #Predict for both Train and Validation sets
     avg_mAP_train, mAPs_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train, fp_counts_train = predict_all_uncropped(image_paths_train, csv_paths_train, crop_size, crop_step, config)
-    write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, fp_counts_train)
+    write_counts_multiviral_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, fp_counts_train, class_names)
     avg_mAP_val, mAPs_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val, fp_counts_val = predict_all_uncropped(image_paths_val, csv_paths_val, crop_size, crop_step, config)
     #V.visualize_predictions_count(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
     #V.visualize_score_histograms(np.array(class_ids_val), np.array(scores_val), f'val_dataset_window_{crop_size[0]}')
-    write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, fp_counts_val)
-    write_counts_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, fp_counts_train+fp_counts_val)
+    write_counts_multiviral_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, fp_counts_val, class_names)
+    write_counts_multiviral_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, fp_counts_train+fp_counts_val, class_names)
     #V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
 
     print("\n")
@@ -694,11 +731,11 @@ if __name__ == '__main__':
     #Predict for both Train and Validation sets
     avg_mAP_train, mAPs_train, recalls_train, precisions_train, f1s_train, gt_match_train, pred_match_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train = predict_all_uncropped_metrics(image_paths_train, csv_paths_train, crop_size, crop_step, config, rcnn)
     precision_train, recall_train, f1_train, mAP_train, p_train, r_train = I.compute_metrics(gt_match_train, pred_match_train)
-    write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, -1*np.ones_like(pred_counts_train))
+    write_counts_multiviral_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, -1*np.ones_like(pred_counts_train),class_names)
     avg_mAP_val, mAPs_val, recalls_val, precisions_val, f1s_val, gt_match_val, pred_match_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val = predict_all_uncropped_metrics(image_paths_val, csv_paths_val, crop_size, crop_step, config, rcnn)
     precision_val, recall_val, f1_val, mAP_val, p_val, r_val = I.compute_metrics(gt_match_val, pred_match_val)
-    write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, -1*np.ones_like(pred_counts_val))
-    write_counts_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, -1*np.ones_like(pred_counts_train+pred_counts_val))
+    write_counts_multiviral_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, -1*np.ones_like(pred_counts_val),class_names)
+    write_counts_multiviral_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, -1*np.ones_like(pred_counts_train+pred_counts_val),class_names)
     #V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
 
     print("\n")
