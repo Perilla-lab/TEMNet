@@ -359,6 +359,59 @@ def visualize_rcnn_predictions(image, boxes, class_ids, scores, imgName, save_fi
         plt.close()
         return img
 
+def visualize_rcnn_predictions_multiclass(image, boxes, class_ids, scores, imgName, config, save_fig=True):
+    """
+    Saves an image of the rcnn predictions displaying the boxes along with their classes and scores
+    Inputs:
+      image: source image to display
+      boxes: array of boxes coordinates to display on the image
+      class_ids: array of predicted classes for the boxes
+      scores: array of predicted probabilities for the box classification
+      imgName: name of the image
+      save_fig: Whether to save or not the generated figure
+    Outputs:
+      if save_fig:
+        None, uses matplotlib to save an image
+      else:
+        img: 3d RGBA numpy matrix representation of the image
+    """
+    # print(f"Image: {image}")
+    # print(f"Boxes: {boxes}")
+    # print(f"Class_ids: {class_ids}")
+    # print(f"Scores: {scores}")
+    map_dict = dict(d.values() for d in config.CLASS_INFO)
+    classes = np.array(list(map_dict.values()))
+    print(f"ImgName: {imgName}")
+    if boxes.shape[0]==0:
+        print(f"##### NO INSTANCES TO DISPLAY FOR IMAGE {imgName}")
+    else:
+        assert boxes.shape[0]==class_ids.shape[0]==scores.shape[0], f"Number of boxes {boxes.shape[0]} and classes {class_ids.shape[0]} or scores {scores.shape[0]} don't match"
+    time = datetime.datetime.now()
+    date = time.strftime("%m")+"_"+time.strftime("%d") + "_" + time.strftime("%I") + "_" + time.strftime("%M")
+    fig, axes = plt.subplots()
+    plt.tight_layout()
+    plt.axis('off')
+    axes.imshow(image)
+    # axes.set_title("RCNN predictions")
+    print("Source image displayed without errors")
+    print(f"Boxes length: {boxes.shape}")
+    for i, box, class_id, score in zip(range(boxes.shape[0]), boxes, class_ids, scores):
+        # Draw the boxes
+        y1, x1, y2, x2 = box
+        label = classes[class_id]
+        color = 'C' + str(class_id)
+        caption = "{} {:2.0f}%".format(label, score) if score else label
+        axes.text(x1, y1+8, caption, color='b', size=8, backgroundcolor='none')
+        rect = patches.Rectangle((x1, y2), x2-x1, y1-y2, linewidth=2, edgecolor=color, facecolor='none', linestyle='-')
+        axes.add_patch(rect)
+    if save_fig:
+        fig.savefig(os.path.join(IMAGE_PATH,"RCNN_PREDS_" + imgName + "_" + date + "_.png"), bbox_inches = 'tight')#, pad_inches = 0.5)
+        plt.close()
+        return None
+    else:
+        img = fig2data(fig)
+        plt.close()
+        return img
 
 def visualize_predictions_count(class_ids, scores, imgName, exclude_background=True):
     """
@@ -399,6 +452,8 @@ def visualize_predictions_count(class_ids, scores, imgName, exclude_background=T
         classes = ['backgound','eccentric','mature','immature']
         class_counts = np.zeros(len(classes)) #Start at zero
         present_class_id, counts = np.unique(class_ids, return_counts=True) #And count those present
+        if len(counts) != 0:
+            class_counts[present_class_id]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
         print(f"Class counts on image {imgName}: {class_counts}")
         # Keep track of the mean score for each class to use as labels
         lab_scores = np.zeros(len(classes))
@@ -413,6 +468,58 @@ def visualize_predictions_count(class_ids, scores, imgName, exclude_background=T
     autolabel(rects1, class_counts)
     fig.savefig(os.path.join(IMAGE_PATH,"RCNN_COUNTS_" + imgName + "_" + date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
     plt.close()
+
+def visualize_predictions_count_multiclass(class_ids, scores, imgName, config, exclude_background=True):
+    """
+    Saves an bar plot of the number of particles according to their classes by the rcnn predictions
+    Inputs:
+      class_ids: array of predicted classes for the boxes
+      scores: array of predicted probabilities for the box classification
+      imgName: name of the image
+    Outputs:
+      None, uses matplotlib to save an image
+    """
+    def autolabel(rects, labels):
+        """Attach a text label above each bar in *rects*, displaying its height."""
+        for lab, rect in zip(labels, rects):
+            height = rect.get_height()
+            ax.annotate('{:.2f}'.format(lab),
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom')
+
+    time = datetime.datetime.now()
+    date = time.strftime("%m")+"_"+time.strftime("%d") + "_" + time.strftime("%I") + "_" + time.strftime("%M")
+    fig, ax = plt.subplots()
+    #Generate arrays for counting the number of particles
+    map_dict = dict(d.values() for d in config.CLASS_INFO)
+    classes = np.array(list(map_dict.values()))
+    #if exclude_background:
+    #    classes = classes[classes != 'BG']
+    class_counts = np.zeros(len(classes)) #Start counting at zero
+    present_class_id, counts = np.unique(class_ids, return_counts=True) #And count those present
+    if len(counts) != 0:
+        class_counts[present_class_id]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
+    print(f"Class counts on image {imgName}: {class_counts}")
+    # Keep track of the mean score for each class to use as labels
+    lab_scores = np.zeros(len(classes))
+    for i in present_class_id:
+        lab_scores[i]=np.mean(scores[np.where(class_ids==i)])
+    # Background should be index zero in predictions so exclude it by starting from 1
+    if exclude_background:
+        classes = classes[classes != 'BG']
+        class_counts = class_counts[classes != 'BG']
+    #Now use them for a plot bar
+    rects1 = ax.bar(np.arange(len(classes)), class_counts, width = 0.8)
+    ax.set_xticks(np.arange(len(classes)))
+    ax.set_xticklabels(classes)
+    ax.set_ylabel('Prediction counts')
+    ax.set_title(f'Prediction counts for image {imgName}')
+    autolabel(rects1, class_counts)
+    fig.savefig(os.path.join(IMAGE_PATH,"RCNN_COUNTS_"+config.BACKBONE+ "_" + imgName + "_" + date + ".png"), bbox_inches = 'tight', pad_inches = 0.5)
+    plt.close()
+
 
 def visualize_dataset(dataset):
     """

@@ -148,7 +148,7 @@ def visualize(dataset, config, imgName = 'test'):
   pred_boxes[pred_boxes < 0.] = 0.
   pred_boxes[pred_boxes>images_gt[0].shape[0]] = images_gt[0].shape[0]
   # print(f"visualize: pred_boxes : {pred_boxes}")
-  V.visualize_rcnn_predictions(np.uint8(images_gt[0]), pred_boxes, pred_0["class_ids"], pred_0["scores"], config.BACKBONE+'_'+imgName)
+  V.visualize_rcnn_predictions_multiclass(np.uint8(images_gt[0]), pred_boxes, pred_0["class_ids"], pred_0["scores"], config.BACKBONE+'_'+imgName, config)
   mAP = I.compute_mAP(gt_boxes[0], gt_class_ids[0], pred_boxes, pred_0["class_ids"], pred_0["scores"])
   print(f"### mAP obtained for predictions on image {imgName} : {mAP}")
   #pred_boxes, pred_class_ids, pred_scores = predict_rcnn(config, imgName, image_gt, image_meta, anchors)
@@ -187,7 +187,7 @@ def predict_all_rcnn(dataset, config):
       pred_boxes[pred_boxes < 0.] = 0.
       pred_boxes[pred_boxes>images_gt[j].shape[0]] = images_gt[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
-      V.visualize_rcnn_predictions(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j])
+      V.visualize_rcnn_predictions_multiclass(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], config)
       mAP, _, _, _,_ = I.compute_mAP(gt_boxes[0], gt_class_ids[0], pred_boxes, pred["class_ids"], pred["scores"])
       print(f"### mAP obtained for predictions on image {imgNames[j]} : {mAP}")
       mAPs.append(mAP)
@@ -272,7 +272,7 @@ def predict_one_image(img_paths, config, save_fig):
       pred_boxes[pred_boxes < 0.] = 0.
       pred_boxes[pred_boxes>image_batch[j].shape[0]] = image_batch[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
-      pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], save_fig)
+      pred_img = V.visualize_rcnn_predictions_multiclass(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], config, save_fig)
       pred_imgs.append(pred_img)
       overall_class_ids += list(pred["class_ids"])
       overall_scores += list(pred["scores"])
@@ -387,12 +387,12 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn, save_f
     print(f"Final number of detections: {len(all_pred_boxes)}")
     print(f"Final number of detections after nms: {len(nms_pred_boxes)}")
     # V.visualize_rcnn_predictions(source_image, all_pred_boxes, all_pred_class_ids, all_pred_scores, img_name)
-    pred_image = V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, save_fig)
-    V.visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config.DETECTION_EXCLUDE_BACKGROUND)
+    pred_image = V.visualize_rcnn_predictions_multiclass(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config, save_fig)
+    V.visualize_predictions_count_multiclass(nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config, config.DETECTION_EXCLUDE_BACKGROUND)
     #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
     return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, pred_image
   else:
-    one_boxes, one_class_ids, one_scores, oneimg = predict_one_image([img_path], config, save_img)
+    one_boxes, one_class_ids, one_scores, one_img = predict_one_image([img_path], config, save_fig)
     return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores), np.array(one_img)
 
 def crop_image(image, crop_size, starting_point):

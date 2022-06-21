@@ -375,6 +375,7 @@ class Dataset(Sequence):
                 #    batch_rpn_rois = np.zeros((self.config.BATCH_SIZE, rpn_rois.shape[0], 4), dtype=rpn_rois.dtype)
             else:
                 rpn_rois = self.anchors[rpn_class==1]
+            print('Dataset:: rpn_rois ', rpn_rois)
             if self.generate_detection_targets:
                 rois, rcnn_class_ids, rcnn_bbox = I.build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, self.config)
                 if batch_id == 0:
