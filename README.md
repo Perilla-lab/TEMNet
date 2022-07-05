@@ -51,11 +51,11 @@ these will be installed to the environment directory **/temnet-env/** so no need
 The training pipeline is currently restricted to tensorflow 2.1, if you wish to train the network you should use requirements_tf21.txt instead, for inference any tensorflow version >=2.1 works as specified in requirements.txt.
 
 ## Downloading the dataset
-You can train the network with any dataset you like. However we provide a dataset of 59 HIV-1 TEM micrographs for training and validating your data. You can download it with the script we provide 
+You can train the network with any dataset you like. However we provide a dataset of 59 HIV-1 TEM micrographs for training and validating your data. You can download it with the script we provide in the **/dataset/** directory
 ```
-bash ./dataset/download_dataset.sh
+bash download_dataset.sh
 ```
-or manually [here!](https://drive.google.com/drive/folders/1lklUSswSsQAaZCZfJPfc5qT6fNGCJ4xj?usp=sharing) and run the python script
+or manually [here!](https://drive.google.com/drive/folders/1lklUSswSsQAaZCZfJPfc5qT6fNGCJ4xj?usp=sharing). After unzipping files you should have  __backbone_dataset/__ and __rcnn_dataset_full/__ folders containing the data to train an instance classifier and the RCNN. Then run the python script
 ```
 python3 augment-images.py
 ```
