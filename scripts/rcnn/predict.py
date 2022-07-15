@@ -3,6 +3,7 @@ import os, argparse, csv
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 import numpy as np
+import matplotlib.pyplot as plt
 from keras.preprocessing.image import load_img, img_to_array
 import tensorflow as tf
 
@@ -191,7 +192,7 @@ def predict_all_rcnn(dataset, config):
       pred_boxes[pred_boxes>images_gt[j].shape[0]] = images_gt[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
       try:
-        V.visualize_rcnn_predictions_multiclass(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], config)
+        V.visualize_rcnn_predictions(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j])
       except Exception as e:
         print(f"Failed visualizing {imgNames[j]} : {e}")
         plt.close()
@@ -281,7 +282,7 @@ def predict_one_image(img_paths, config, save_fig):
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
       #pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], save_fig)
       try:
-        pred_img = V.visualize_rcnn_predictions_multiclass(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], config, save_fig)
+        pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], save_fig)
       except Exception as e:
         print(f"Failed visualizing {imgNames} : {e}")
         pred_img = None
@@ -401,8 +402,8 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn, save_f
     print(f"Final number of detections after nms: {len(nms_pred_boxes)}")
     # V.visualize_rcnn_predictions(source_image, all_pred_boxes, all_pred_class_ids, all_pred_scores, img_name)
     try: 
-      pred_image = V.visualize_rcnn_predictions_multiclass(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config, save_fig)
-      V.visualize_predictions_count_multiclass(nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config, config.DETECTION_EXCLUDE_BACKGROUND)
+      pred_image = V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, save_fig)
+      V.visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config.DETECTION_EXCLUDE_BACKGROUND)
       #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
     except Exception as e:
       print(f"Failed visualizing {img_name} : {e}")
@@ -641,6 +642,7 @@ if __name__ == '__main__':
   parser.add_argument("-p", "--path", help="Path to the image to predict or directory containing images for multiple image prediction", default='')
   parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
   parser.add_argument("-m", "--magnification", help="Magnification of the input image for prediction", default=30000, type=int)
+  parser.add_argument("-g", "--gpu", help="ID of the GPU to use for inference", default='0')
   args = parser.parse_args()
   if(args.path == ''):
       print('\n Please provide a valid path for image prediction.')
@@ -649,6 +651,7 @@ if __name__ == '__main__':
       print("-p", "\t --path", "\t Path to the image to predict or directory containing images for multiple image prediction")
       print("-b", "\t --backbone", "\t Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model")
       print("-m", "\t --magnification", "\t Magnification of the input image for prediction")
+      print("-g", "\t --gpu", "\t ID of the GPU to use for inference")
   config = Config(backbone=args.backbone)
   print(f"Prediction mode: {args.data}")
   print(f"Predicting from: {args.path}")
@@ -664,6 +667,7 @@ if __name__ == '__main__':
   crop_size = (new_crop_size, new_crop_size)
   crop_step = (new_crop_step, new_crop_step)
   # Only load weights once
+  n_gpu = args.gpu
   rcnn = RCNN(config, 'inference')
   rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
   map_dict = dict(d.values() for d in config.CLASS_INFO)
@@ -735,10 +739,12 @@ if __name__ == '__main__':
     csv_paths_val = [os.path.join(VAL_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in val_ids]
     #Sequentially predict on the uncropped images and store their class ids
     #Predict for both Train and Validation sets
-    avg_mAP_train, mAPs_train, recalls_train, precisions_train, f1s_train, gt_match_train, pred_match_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train = predict_all_uncropped_metrics(image_paths_train, csv_paths_train, crop_size, crop_step, config, rcnn)
+    with(tf.device('/GPU:'+n_gpu)):
+      avg_mAP_train, mAPs_train, recalls_train, precisions_train, f1s_train, gt_match_train, pred_match_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train = predict_all_uncropped_metrics(image_paths_train, csv_paths_train, crop_size, crop_step, config, rcnn)
     precision_train, recall_train, f1_train, mAP_train, p_train, r_train = I.compute_metrics(gt_match_train, pred_match_train)
     write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, -1*np.ones_like(pred_counts_train))
-    avg_mAP_val, mAPs_val, recalls_val, precisions_val, f1s_val, gt_match_val, pred_match_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val = predict_all_uncropped_metrics(image_paths_val, csv_paths_val, crop_size, crop_step, config, rcnn)
+    with(tf.device('/GPU:'+n_gpu)):
+      avg_mAP_val, mAPs_val, recalls_val, precisions_val, f1s_val, gt_match_val, pred_match_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val = predict_all_uncropped_metrics(image_paths_val, csv_paths_val, crop_size, crop_step, config, rcnn)
     precision_val, recall_val, f1_val, mAP_val, p_val, r_val = I.compute_metrics(gt_match_val, pred_match_val)
     write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, -1*np.ones_like(pred_counts_val))
     write_counts_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, -1*np.ones_like(pred_counts_train+pred_counts_val))
