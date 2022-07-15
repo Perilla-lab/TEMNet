@@ -6,8 +6,8 @@ Developed by Hagan Beatson, Alex Brier and Juan Rey @ Perillalab University of D
 """
 
 import cv2, copy, os, argparse
-from tensorflow.keras.preprocessing.image import img_to_array, load_img
-from tensorflow.keras.utils import Sequence
+from keras.preprocessing.image import img_to_array, load_img
+from keras.utils import Sequence
 import numpy as np
 import time
 
@@ -127,7 +127,7 @@ class Config(object):
     DETECTION_NMS_THRESHOLD = 0.3
 
     # Whether to report background instances or not
-    DETECTION_EXCLUDE_BACKGROUND = False
+    DETECTION_EXCLUDE_BACKGROUND = True
     
     #Whether to use ROIs from RPN predictions or from an external input
     # This is useful if we're training only the classifier heads so we can disregard the RPN predictions
@@ -166,6 +166,8 @@ class Config(object):
     BASE_MAGNIFICATION = 30000 # Magnification of TEM micrographs used for training
     BASE_CROP_SIZE = 1024 # pixels, size of the cropped micrographs used for training
     BASE_CROP_STEP = 500 # pixels, size of the steps for the overlapping cropped micrographs used for training
+    MEAN_PIXEL = np.array([131.51, 131.51, 131.51])
+    STD_PIXEL = np.array([47.11, 47.11, 47.11])
 
     #Learning rate for model optimizer, since the model momentum is high we need to keep this down to stop ourselves from overstepping the minima
     #LEARNING_RATE = 0.000000000000001
@@ -207,8 +209,8 @@ class Config(object):
         backbone: Backbone convolutional archiitecture to use for training and inference
         """
         #Verify that train and validation paths exist
-        # assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
-        # assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
+        assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
+        assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
         assert(backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
         self.BACKBONE = backbone
@@ -460,7 +462,9 @@ class Dataset(Sequence):
         """
 
         # print("classes:Dataset: preprocessing image")
-        return image.astype(np.float32)# - self.config.MEAN_PIXEL 
+	# Standardize image according to training set mean and std
+        return (image.astype(np.float32) - self.config.MEAN_PIXEL ) / self.config.STD_PIXEL
+        #return image.astype(np.float32)# - self.config.MEAN_PIXEL 
     # In the original mask-rpn code the masks were black and white images so this was necessary to erase outliers and make sure the maks pixels were truth to bounding boxes.-JR
 
     def augment(self, img, bboxes_coords, config):

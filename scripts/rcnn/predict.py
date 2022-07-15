@@ -3,11 +3,10 @@ import os, argparse, csv
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 import numpy as np
-from tensorflow.keras.preprocessing.image import load_img, img_to_array
+from keras.preprocessing.image import load_img, img_to_array
 import tensorflow as tf
 
 from model import RCNN
-import helpers as H
 import input_pipeline as I
 import visualize as V
 from config import Config, Dataset, Image
@@ -148,7 +147,11 @@ def visualize(dataset, config, imgName = 'test'):
   pred_boxes[pred_boxes < 0.] = 0.
   pred_boxes[pred_boxes>images_gt[0].shape[0]] = images_gt[0].shape[0]
   # print(f"visualize: pred_boxes : {pred_boxes}")
-  V.visualize_rcnn_predictions(np.uint8(images_gt[0]), pred_boxes, pred_0["class_ids"], pred_0["scores"], config.BACKBONE+'_'+imgName)
+  try:
+    V.visualize_rcnn_predictions(np.uint8(images_gt[0]), pred_boxes, pred_0["class_ids"], pred_0["scores"], config.BACKBONE+'_'+imgName)
+  except Exception as e:
+    print(f"Failed visualizing {imgName} : {e}")
+    plt.close()
   mAP = I.compute_mAP(gt_boxes[0], gt_class_ids[0], pred_boxes, pred_0["class_ids"], pred_0["scores"])
   print(f"### mAP obtained for predictions on image {imgName} : {mAP}")
   #pred_boxes, pred_class_ids, pred_scores = predict_rcnn(config, imgName, image_gt, image_meta, anchors)
@@ -187,7 +190,11 @@ def predict_all_rcnn(dataset, config):
       pred_boxes[pred_boxes < 0.] = 0.
       pred_boxes[pred_boxes>images_gt[j].shape[0]] = images_gt[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
-      V.visualize_rcnn_predictions(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j])
+      try:
+        V.visualize_rcnn_predictions_multiclass(np.uint8(images_gt[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], config)
+      except Exception as e:
+        print(f"Failed visualizing {imgNames[j]} : {e}")
+        plt.close()
       mAP, _, _, _,_ = I.compute_mAP(gt_boxes[0], gt_class_ids[0], pred_boxes, pred["class_ids"], pred["scores"])
       print(f"### mAP obtained for predictions on image {imgNames[j]} : {mAP}")
       mAPs.append(mAP)
@@ -272,7 +279,13 @@ def predict_one_image(img_paths, config, save_fig):
       pred_boxes[pred_boxes < 0.] = 0.
       pred_boxes[pred_boxes>image_batch[j].shape[0]] = image_batch[j].shape[0]
       # print(f"predict_all_rcnn: pred_boxes : {pred_boxes}")
-      pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], save_fig)
+      #pred_img = V.visualize_rcnn_predictions(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], save_fig)
+      try:
+        pred_img = V.visualize_rcnn_predictions_multiclass(np.uint8(image_batch[j]), pred_boxes, pred["class_ids"], pred["scores"], config.BACKBONE+'_'+imgNames[j], config, save_fig)
+      except Exception as e:
+        print(f"Failed visualizing {imgNames} : {e}")
+        pred_img = None
+        plt.close()
       pred_imgs.append(pred_img)
       overall_class_ids += list(pred["class_ids"])
       overall_scores += list(pred["scores"])
@@ -387,12 +400,17 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn, save_f
     print(f"Final number of detections: {len(all_pred_boxes)}")
     print(f"Final number of detections after nms: {len(nms_pred_boxes)}")
     # V.visualize_rcnn_predictions(source_image, all_pred_boxes, all_pred_class_ids, all_pred_scores, img_name)
-    pred_image = V.visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, save_fig)
-    V.visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config.DETECTION_EXCLUDE_BACKGROUND)
-    #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
+    try: 
+      pred_image = V.visualize_rcnn_predictions_multiclass(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config, save_fig)
+      V.visualize_predictions_count_multiclass(nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, config, config.DETECTION_EXCLUDE_BACKGROUND)
+      #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
+    except Exception as e:
+      print(f"Failed visualizing {img_name} : {e}")
+      pred_image = None
+      plt.close()
     return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, pred_image
   else:
-    one_boxes, one_class_ids, one_scores, oneimg = predict_one_image([img_path], config, save_img)
+    one_boxes, one_class_ids, one_scores, oneimg = predict_one_image([img_path], config, save_fig)
     return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores), np.array(one_img)
 
 def crop_image(image, crop_size, starting_point):
@@ -480,12 +498,12 @@ def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config, rc
     img_name = img_path.split('/')[-1]
     #Keep the counts to write a csv file
     #classes = ['eccentric','mature','immature']
-    class_counts = np.zeros(3) #Start at zero
+    class_counts = np.zeros(3) #Start counting at zero
     present_class_id, counts = np.unique(pred_class_ids, return_counts=True) #And count those present
     if len(counts) != 0:
       class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_pred_counts.append(class_counts)
-    class_counts = np.zeros(3) #Start at zero
+    class_counts = np.zeros(3) #Start counting at zero
     present_class_id, counts = np.unique(gt_class_ids, return_counts=True) #And count those present
     class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_gt_counts.append(class_counts)
@@ -541,12 +559,12 @@ def predict_all_uncropped_metrics(img_paths, csv_paths, crop_size, crop_step, co
     img_name = img_path.split('/')[-1]
     #Keep the counts to write a csv file
     #classes = ['eccentric','mature','immature']
-    class_counts = np.zeros(3) #Start at zero
+    class_counts = np.zeros(3) #Start counting at zero
     present_class_id, counts = np.unique(pred_class_ids, return_counts=True) #And count those present
     if len(counts) != 0:
       class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_pred_counts.append(class_counts)
-    class_counts = np.zeros(3) #Start at zero
+    class_counts = np.zeros(3) #Start counting at zero
     present_class_id, counts = np.unique(gt_class_ids, return_counts=True) #And count those present
     class_counts[present_class_id-1]=counts #Since the class ids are 1,2,3 and the counts have indices 0,1,2 we have to subtract 1
     all_gt_counts.append(class_counts)
@@ -593,7 +611,30 @@ def write_counts_csv(csvname, img_names, gt_counts, pred_counts, fp_counts):
                        'immature_pred': pred_counts[i][2],
                        'false_positives': fp_counts[i]
       })
-      
+
+def write_counts_multiviral_csv(csvname, img_names, gt_counts, pred_counts, fp_counts, class_names):
+  with open(csvname, mode='w', newline='') as labels:
+    fields = ['#filename']
+    for cn in class_names:
+      fields.append(cn+'_gt')
+      fields.append(cn+'_pred')
+    fields.append('false_positives')
+
+    writer = csv.DictWriter(labels,
+                            fieldnames=fields,
+                            dialect='excel',
+    quoting=csv.QUOTE_MINIMAL)
+  
+    writer.writeheader()
+    for i in range(len(gt_counts)):
+      fielddicts = [{'field':'#filename','value':img_names[i]}]
+      for j,cn in enumerate(class_names):
+        fielddicts.append({'field':cn+'_gt','value':gt_counts[i][j]})
+        fielddicts.append({'field':cn+'_pred','value':pred_counts[i][j]})
+      fielddicts.append({'field':'false_positives','value':fp_counts[i]})
+      rowdict = dict(d.values() for d in fielddicts)
+      writer.writerow(rowdict)
+
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("-d", "--data", help="\'single\', \'multiple\' or \'test dataset\' image prediction", default='multiple')
@@ -625,6 +666,8 @@ if __name__ == '__main__':
   # Only load weights once
   rcnn = RCNN(config, 'inference')
   rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
+  map_dict = dict(d.values() for d in config.CLASS_INFO)
+  class_names = np.array(list(map_dict.values()))
 
   if(args.data == 'dataset_all'):
     datasets = {"train": Dataset(config.TRAIN_PATH, config, "train"), "validation": Dataset(config.VAL_PATH, config, "validation")}
@@ -685,7 +728,7 @@ if __name__ == '__main__':
     VAL_PATH = config.VAL_PATH_NOAUG
     # Read images from train and validation:
     train_ids = next(os.walk(TRAIN_PATH))[1]#[:1]#All folder names in TRAIN_PATH
-    val_ids = next(os.walk(VAL_PATH))[1][:1]#All folder names in TRAIN_PATH
+    val_ids = next(os.walk(VAL_PATH))[1]#[:1]#All folder names in TRAIN_PATH
     image_paths_train = [os.path.join(TRAIN_PATH, img_name, img_name+'.png') for img_name in train_ids]
     image_paths_val = [os.path.join(VAL_PATH, img_name, img_name+'.png') for img_name in val_ids]
     csv_paths_train = [os.path.join(TRAIN_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in train_ids]

@@ -6,7 +6,7 @@ import matplotlib.patches as patches
 
 import input_pipeline as I
 from config import Config, Dataset
-from tensorflow.keras.preprocessing.image import img_to_array, load_img
+from keras.preprocessing.image import img_to_array, load_img
 
 # Defining global path prefix so we stop saving stuff on /home/ and actually use scratch for its intended purpose
 PATH_PREFIX = os.path.abspath(os.path.join(os.getcwd(), os.pardir, os.pardir))

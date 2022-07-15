@@ -3,14 +3,14 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.eager import context #To check whether we're executing eagerly or not
 #tf.compat.v1.enable_eager_execution()
-import tensorflow.keras.layers as KL
-import tensorflow.keras.models as KM
-import tensorflow.keras.optimizers as KO
-import tensorflow.keras.regularizers as KR
-from tensorflow.keras import backend
-from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.callbacks import Callback
-from tensorflow.keras.callbacks import ReduceLROnPlateau
+import keras.layers as KL
+import keras.models as KM
+import keras.optimizers as KO
+import keras.regularizers as KR
+from keras import backend
+from keras.callbacks import ModelCheckpoint
+from keras.callbacks import Callback
+from keras.callbacks import ReduceLROnPlateau
 
 import helpers as H
 import input_pipeline as I
@@ -836,7 +836,6 @@ class RCNN(object):
             x = KL.Conv2D(4 * filters, 1, name=name + '_3_conv')(x)
             x = KL.Add(name=name + '_out')([shortcut, x])
             return x
-
 
         def stack2(x, filters, blocks, stride1=2, name=None):
             """A set of stacked residual blocks. This is an effective way of writing multiple implementations of ResNet at once since the only thing different is the number of residual blocks stacked
@@ -1723,6 +1722,8 @@ class RCNN(object):
         #                         validation_data=dataset["validation"], validation_steps=len(dataset["validation"]))
         history = self.keras_model.fit(dataset["train"], steps_per_epoch=len(dataset["train"]), epochs=self.config.EPOCHS, callbacks=callbacks,
                                  validation_data=dataset["validation"], validation_steps=len(dataset["validation"]))
+       # history = self.keras_model.fit(dataset["train"], steps_per_epoch=len(dataset["train"]), epochs=self.config.EPOCHS, callbacks=callbacks,
+        #                         validation_data=dataset["validation"], validation_steps=len(dataset["validation"]), workers = 24, use_multiprocessing=True)
         #history = self.keras_model.fit(dataset["train"], steps_per_epoch=len(dataset["train"]), epochs=self.config.EPOCHS, callbacks=callbacks)
         return history, lrm
 
@@ -1791,24 +1792,27 @@ class RCNN(object):
         Returns path to weights file.
         """
         from keras.utils.data_utils import get_file
-        # To Download Inception-ResNet-v2 weights pretrained in ImageNet
-        TF_WEIGHTS_PATH_NO_TOP = ('https://storage.googleapis.com/tensorflow/'
-                           'keras-applications/inception_resnet_v2/'
-                           'inception_resnet_v2_weights_tf_dim_ordering_tf_kernels.h5')
+        # Download Inception-ResNet-v2/ResNetv2 weights pretrained in ImageNet
+        if 'inception' in backbone:
+            TF_WEIGHTS_PATH_NO_TOP = ('https://storage.googleapis.com/tensorflow/'
+                               'keras-applications/inception_resnet_v2/'
+                               'inception_resnet_v2_weights_tf_dim_ordering_tf_kernels.h5')
 
-        weights_path = get_file(
-            'inception_resnet_v2_weights_tf_dim_ordering_tf_kernels.h5',
-            TF_WEIGHTS_PATH_NO_TOP,
-            cache_subdir='models',
-            file_hash='d19885ff4a710c122648d3b5c3b684e4')
-        # To Download ResNet50 weights pretrained in ImageNet
-        # TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
-        #                          'releases/download/v0.2/'\
-        #                          'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
-        # weights_path = get_file('resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
-        #                         TF_WEIGHTS_PATH_NO_TOP,
-        #                         cache_subdir='models',
-        #                         md5_hash='a268eb855778b3df3c7506639542a6af')
+            weights_path = get_file(
+                'inception_resnet_v2_weights_tf_dim_ordering_tf_kernels.h5',
+                TF_WEIGHTS_PATH_NO_TOP,
+                cache_subdir='models',
+                file_hash='d19885ff4a710c122648d3b5c3b684e4')
+        elif 'resnet' in backbone:
+            TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
+                                     'releases/download/v0.2/'\
+                                     'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
+            weights_path = get_file('resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+                                    TF_WEIGHTS_PATH_NO_TOP,
+                                    cache_subdir='models',
+                                    md5_hash='a268eb855778b3df3c7506639542a6af')
+        else:
+            raise NameError('No ImageNet weights could be found!')
         return weights_path
 
 
@@ -1824,6 +1828,55 @@ class RCNN(object):
         Returns: A list of dictionaries contaiing the predictions for the image:
         rois: [N, (y1, x1, y2, x2)] detection bounding boxes coordinates
         class_ids: [N] integer class IDs
+        scores: [N] float score probabilities corresponding to the class_ids
+        """
+
+        assert self.mode == "inference", "Prediction is only available on inference mode model"
+
+        # Our model needs three tensors as inputs (see the build_entire_model function):
+        # Image tensor representation, tensor of image meta and anchors
+        # Image tensor and meta are given from the Dataset class and used as inputs for this function
+        # Create the anchors
+        anchors = self.get_anchors(images[0].shape)
+        #Duplicate images so they are the same shape as the images given
+        anchors = np.broadcast_to(anchors, (images.shape[0],)+anchors.shape)
+
+        #Now run keras_model's object detection from our arguments
+        #outputs are detections, rcnn_class, rcnn_bbox, rpn_rois, rpn_class and rpn_bbox we need only the first
+        detections, rcnn_class, rcnn_bbox, rpn_rois, rpn_class, rpn_bbox = self.keras_model.predict([images, image_metas, anchors])
+        rcnn_class = np.squeeze(rcnn_class)
+        # print(f"RCNN-> predict_batch rcnn_class: {rcnn_class}")
+        rcnn_bbox = np.squeeze(rcnn_bbox)
+        # print(f"RCNN-> predict_batch rcnn_bbox: {rcnn_bbox}")
+        rpn_rois = np.squeeze(rpn_rois)
+        # print(f"RCNN-> predict_batch rpn_rois: {rpn_rois}")
+        rpn_class = np.squeeze(rpn_class)
+        # print(f"RCNN-> predict_batch rpn_class: {rpn_class}")
+        rpn_bbox = np.squeeze(rpn_bbox)
+        # print(f"RCNN-> predict_batch rpn_bbox: {rpn_bbox}")
+        #Now divide the detections into their components
+        results = []
+        for i, image in enumerate(images):
+            final_rois, final_class_ids, final_scores = self.process_detections(detections[i], images[i].shape)
+            results.append({
+                "rois": final_rois,
+                "class_ids": final_class_ids,
+                "scores":final_scores
+            })
+        return results
+
+    def predict_batch_rpn(self, images, image_metas):
+        """
+        Runs RPN predictions on an image with given image meta
+
+        Arguments
+        ---------------
+        images: np array represenation of an image from the dataset, this is first input form a Dataset class instance
+        image_metas: array containing info dictionaries for the given image, built on a Dataset class instance
+
+        Returns: A list of dictionaries contaiing the predictions for the image:
+        rois: [N, (y1, x1, y2, x2)] detection bounding boxes coordinates
+        class_ids: [N] integer class IDs for RPN: 0 for no particle 1 for particle
         scores: [N] float score probabilities corresponding to the class_ids
         """
 
