@@ -37,6 +37,38 @@ Simply download the file, uncompress it and run the executable **./TEMNet** (Lin
 
 ## Installation
 
+Installation can be done either from a Singularity container (recommended) or locally into a python environment.
+
+### Installing From A Singularity Container
+
+Singularity is a container platform that allows users to create and run containerized applications, making software dependencies portable and easily reproducable.
+
+If your system does not use singularity you can contact your admin or follow the installation steps [here](https://docs.sylabs.io/guides/3.10/admin-guide/installation.html#installation-on-linux)
+
+To begin, make sure that Singularity and Python are active in your environment.
+Then, in order to download our container file, run:
+
+```
+pip install gdown
+gdown 1hp4YwbEO_4mdnW570WqWMQH4wptFjPCR
+```
+
+Next, clone our github repository into a location of your choosing
+
+```
+git clone https://github.com/Perilla-lab/TEMNet.git
+```
+
+Start a singularity container with access to GPUs, and access to the TEMNet repository folder.
+Make sure the TEMNet.sif file is in the current directory
+
+```
+singularity run --nv --bind [path/to/TEMNet-folder]:/mnt TEMNet.sif
+cd /mnt
+```
+
+### Installing locally
+
 1. (Recommended) Create a python virtual environment for installing this project's dependencies
 
 ```
@@ -58,11 +90,11 @@ your shell prompt now should look like
 2. Install the python dependencies
 
 ```
-pip install -r requirements.txt
+pip install -r requirements_tf21.txt
 ```
 
 these will be installed to the environment directory **/temnet-env/** so no need to worry about breaking your system :) .
-The training pipeline is currently restricted to tensorflow 2.1, if you wish to train the network you should use requirements_tf21.txt instead, for inference any tensorflow version >=2.1 works as specified in requirements.txt.
+The training pipeline is currently restricted to tensorflow 2.1, if you wish to train the network you should use requirements_tf21.txt. For inference any tensorflow version >=2.1 works as specified in requirements.txt.
 
 ## Downloading the dataset
 
@@ -91,10 +123,8 @@ Faster RCNN using a TEMNet backbone (as well as other backbones) can be trained 
 ```
 cd ../scripts/rcnn
 python3 train.py -b [backbone_name]
-#provided backbone options are temnet, resnet101, resnet101v2
 ```
-
-to train other architectures please provide the proper pretraining weights. Weights for every epoch are stored on **/weights/**.
+provided _backbone_name_ options are temnet, resnet101, resnet101v2, inception_resnetv2. To train other architectures and ensure convergence, please provide the proper pretraining weights with the flag _-w '/path/to/weights'_. Weights for every epoch are stored on **/weights/**.
 
 ## Running Prediction Procedures
 
@@ -118,93 +148,6 @@ or batches of images stored in a directory
 python3 predict.py -d 'multiple' -p '/path/to/imgs/' -b [backbone_name]
 ```
 
-More options for multi-magnification predictions can be explored with the -h or --help flag.
-
-Output prediction images and count histograms are stored in the **/graphs/** directory.
-
-## Installing From A Singularity Container
-
-Singularity is a container platform that allows users to create and run containers so that the dependencies
-for software is portable and easily reproducable.
-
-If your system does not use singularity you can contact your admin or follow the installation steps [here](https://docs.sylabs.io/guides/3.10/admin-guide/installation.html#installation-on-linux)
-
-To begin, make sure that Singularity and Python are active in your environment.
-Then, in order to download our container file, run:
-
-```
-pip install gdown
-gdown 1hp4YwbEO_4mdnW570WqWMQH4wptFjPCR
-```
-
-Next, clone our github repo into a location of your choosing
-
-```
-git clone https://github.com/Perilla-lab/TEMNet.git
-```
-
-Start a singularity container with access to gpus, and access to the TEMNet repo folder
-Make sure the TEMNet.sif file is in the current directory
-
-```
-singularity run --nv --bind [path/to/TEMNet-folder]:/mnt TEMNet.sif
-cd /mnt
-```
-
-## Singularity - Download Dataset
-
-You can train the network with any dataset you like. However we provide a dataset of 59 HIV-1 TEM micrographs for training and validating your data. You can download it with the script we provide in the **/dataset/** directory
-
-```
-cd TEMNet/dataset
-bash download_dataset.sh
-unzip '*.zip'
-```
-
-or download manually [here!](https://drive.google.com/drive/folders/1lklUSswSsQAaZCZfJPfc5qT6fNGCJ4xj?usp=sharing). After unzipping files you should have **backbone_dataset/** and **rcnn_dataset_full/** folders containing the data to train an instance classifier and the RCNN.
-
-Then run the python script:
-
-```
-python3 augment-images.py
-```
-
-to augment the dataset into ~10k overlapping cropped images (this might take ~1 hour depending on your hardware so feel free to go for a cup of coffee and listen to your favourite music while you wait). After augmentation the dataset should be 19GB in size.
-
-## Singularity - Training Procedure
-
-Faster RCNN using a TEMNet backbone (as well as other backbones) can be trained using the training script in the **/scripts/rcnn/** directory as
-
-```
-cd ../scripts/rcnn
-python3 train.py -b [backbone_name]
-#provided backbone options are temnet, resnet101, resnet101v2
-```
-
-to train other architectures please provide the proper pretraining weights. Weights for every epoch are stored on **/weights/**.
-
-## Singularity - Predicttion Procedure
-
-Prediction requires trained weights for a given backbone. We have provided weights and precompiled models for TEMNet, ResNet101 and ResNet101v2 which can be downloaded using the script in the **/weights/** directory.
-
-```
-cd ../../weights/
-bash download_weights.sh
-cd ../scripts/rcnn
-```
-
-The predict.py script in **/scripts/rcnn/** handles prediction for individual images
-
-```
-python3 predict.py -d 'single' -p '/path/to/image.png' -b [backbone_name]
-```
-
-or batches of images stored in a directory
-
-```
-python3 predict.py -d 'multiple' -p '/path/to/imgs/' -b [backbone_name]
-```
-
-More options for multi-magnification predictions can be explored with the -h or --help flag.
+More options for multi-magnification predictions or calculating object detection metrics can be explored with the -h or --help flag.
 
 Output prediction images and count histograms are stored in the **/graphs/** directory.
