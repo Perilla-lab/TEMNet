@@ -1,0 +1,50 @@
+Bootstrap: docker
+From: tensorflow/tensorflow:2.1.2-gpu
+
+
+%post
+	# fixes error with tensorflow image
+	rm /etc/apt/sources.list.d/cuda.list
+	rm /etc/apt/sources.list.d/nvidia-ml.list
+
+	# install updates and basic libraries
+	apt-get update
+	apt-get install -y git \
+		wget \
+		ffmpeg \
+		libsm6 \
+		libxext6
+
+	# install python packages
+	pip install keras==2.3.1 \
+		opencv-python \
+		matplotlib \
+		h5py==2.10 \
+		protobuf==3.8.0
+	
+
+%help
+	Singularity container with python3.7
+		tensorflow: 2.1
+		keras: 2.3.1
+		opencv-python
+		matplotlib
+		h5py: 2.10
+		protobuf==3.8
+
+
+	TO START:
+	: singularity run --nv TEMNet.sif
+	: git clone https://github.com/Perilla-lab/TEMNet.git
+
+	If you already have a TEMNet folder you can include it
+	in the container by adding --bind YOUR_FOLDER:/mnt to
+	the singularity run statement.
+
+	Now your folder will be found in the singularity /mnt
+	folder.
+
+%labels
+	Maintainer "Gage Schuster <gageschu@udel.edu>"
+
+
