@@ -1,16 +1,16 @@
 import os, sys, argparse
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.eager import context #To check whether we're executing eagerly or not
+# TensorFlow 2 executes eagerly by default.
 #tf.compat.v1.enable_eager_execution()
-import keras.layers as KL
-import keras.models as KM
-import keras.optimizers as KO
-import keras.regularizers as KR
-from keras import backend
-from keras.callbacks import ModelCheckpoint
-from keras.callbacks import Callback
-from keras.callbacks import ReduceLROnPlateau
+import tensorflow.keras.layers as KL
+import tensorflow.keras.models as KM
+import tensorflow.keras.optimizers as KO
+import tensorflow.keras.regularizers as KR
+from tensorflow.keras import backend
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.callbacks import Callback
+from tensorflow.keras.callbacks import ReduceLROnPlateau
 
 import helpers as H
 import input_pipeline as I
@@ -19,6 +19,20 @@ from config import Config, Dataset
 from addons import GroupNormalization
 #tf.compat.v1.disable_eager_execution()
 
+
+@tf.keras.utils.register_keras_serializable(package="temnet")
+class WeightedLoss(KL.Layer):
+    """Registers a model-internal loss while preserving the loss tensor output."""
+    def __init__(self, weight=1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.weight = weight
+
+    def call(self, loss):
+        self.add_loss(tf.reduce_mean(loss) * self.weight)
+        return loss
+
+    def get_config(self):
+        return {**super().get_config(), "weight": self.weight}
 
 def trim_zeros(boxes, name='trim_zeros'):
     """Often boxes are represented with matrices of shape [N, 4] and
@@ -45,7 +59,7 @@ class LearningRateMonitor(Callback):
 	def on_epoch_end(self, epoch, logs={}):
 		# get and store the learning rate
 		optimizer = self.model.optimizer
-		lrate = float(backend.get_value(self.model.optimizer.lr))
+		lrate = float(backend.get_value(self.model.optimizer.learning_rate))
 		self.lrates.append(lrate)
 
 
@@ -152,7 +166,7 @@ class ProposalLayer(KL.Layer):
         proposals = I.batch_slice([boxes, scores], nms,
                                       self.config.BATCH_SIZE)
 
-        if not context.executing_eagerly():
+        if not tf.executing_eagerly():
             # Infer the static output shape:
             out_shape = self.compute_output_shape(None)
             proposals.set_shape(out_shape)
@@ -1439,7 +1453,7 @@ class RCNN(object):
             # gt_boxes = KL.Lambda(lambda x: I.norm_boxes_tf(
             #     x, backend.shape(input_image)[1:3]))(input_gt_boxes)
             gt_boxes = KL.Lambda(lambda x: I.norm_boxes_tf(
-                x, tf.convert_to_tensor(list(self.config.IMAGE_SHAPE))))(input_gt_boxes)
+                x, tf.convert_to_tensor(list(self.config.IMAGE_SHAPE))), output_shape=lambda shape: shape)(input_gt_boxes)
         elif mode == "inference":
             # Anchors in normalized coordinates
             input_anchors = KL.Input(shape=[None, 4], name="input_anchors")
@@ -1535,7 +1549,7 @@ class RCNN(object):
                 # target_rois = KL.Lambda(lambda x: I.norm_boxes_tf(
                 #     x, backend.shape(input_image)[1:3]))(input_rois)
                 target_rois = KL.Lambda(lambda x: I.norm_boxes_tf(
-                    x, tf.convert_to_tensor(list(self.config.IMAGE_SHAPE))))(input_rois)
+                    x, tf.convert_to_tensor(list(self.config.IMAGE_SHAPE))), output_shape=lambda shape: shape)(input_rois)
 
             # Generate detection targets
             # Subsamples proposals and generates target outputs for training
@@ -1564,10 +1578,14 @@ class RCNN(object):
             print("model rpn_bbox", rpn_bbox.shape)"""
             rpn_bbox_loss = KL.Lambda(lambda x: H.rpn_bbox_loss(self.config, *x), name="rpn_bbox_loss")(
                                       [input_rpn_match, input_rpn_bbox, rpn_bbox])
+            rpn_class_loss = WeightedLoss(self.config.LOSS_WEIGHTS.get("rpn_class_loss", 1.0), name="rpn_class_loss_value")(rpn_class_loss)
+            rpn_bbox_loss = WeightedLoss(self.config.LOSS_WEIGHTS.get("rpn_bbox_loss", 1.0), name="rpn_bbox_loss_value")(rpn_bbox_loss)
             if not self.config.TRAIN_ONLY_RPN:
                 class_loss = KL.Lambda(lambda x: H.rcnn_class_loss(*x), name="rcnn_class_loss")([target_class_ids, rcnn_class_logits])
                 # print("->model class_loss calculated succesfully", class_loss)
                 bbox_loss = KL.Lambda(lambda x: H.rcnn_bbox_loss(self.config, *x), name="rcnn_bbox_loss")([target_bbox, target_class_ids, rcnn_bbox])
+                class_loss = WeightedLoss(self.config.LOSS_WEIGHTS.get("rcnn_class_loss", 1.0), name="rcnn_class_loss_value")(class_loss)
+                bbox_loss = WeightedLoss(self.config.LOSS_WEIGHTS.get("rcnn_bbox_loss", 1.0), name="rcnn_bbox_loss_value")(bbox_loss)
                 #mAP_accuracy = KL.Lambda(lambda x: H.mAP_accuracy(target_bbox, target_class_ids, rcnn_bbox, rcnn_class, rcnn_class_logits))
                 #Inputs and outputs of the model
                 inputs = [input_image, input_image_data, input_rpn_match, input_rpn_bbox,
@@ -1649,44 +1667,13 @@ class RCNN(object):
         """
         #tf.compat.v1.enable_eager_execution()
         # Create the optimizer
-        optimizer = KO.SGD(lr=self.config.LEARNING_RATE, momentum=self.config.LEARNING_MOMENTUM,
-                           clipnorm=self.config.GRADIENT_CLIP_NORM)
+        optimizer = KO.SGD(learning_rate=self.config.LEARNING_RATE, momentum=self.config.LEARNING_MOMENTUM,
+                           clipnorm=self.config.GRADIENT_CLIP_NORM, weight_decay=self.config.WEIGHT_DECAY)
 
-        # Add Losses
-        #self.model._losses = []
-        #self.model._per_input_losses = {}
-        if not self.config.TRAIN_ONLY_RPN:
-            loss_names = ["rpn_class_loss", "rpn_bbox_loss",
-                          "rcnn_class_loss", "rcnn_bbox_loss"]
-        else:
-            loss_names = ["rpn_class_loss", "rpn_bbox_loss"]
-        for name in loss_names:
-            layer = self.keras_model.get_layer(name)
-            #if layer.output in self.keras_model.losses:
-            #    continue
-            loss = (tf.reduce_mean(input_tensor=layer.output, keepdims=True) * self.config.LOSS_WEIGHTS.get(name, 1.))
-            self.keras_model.add_loss(loss)
-            
-        #Add L2 Regularization to avoid overfitting
-        reg_losses = [
-            KR.l2(self.config.WEIGHT_DECAY)(w) / tf.cast(tf.size(input=w), tf.float32)
-            for w in self.keras_model.trainable_weights
-            if 'gamma' not in w.name and 'beta' not in w.name]
-        self.keras_model.add_loss(tf.add_n(reg_losses))
-
-        #Compile the model
-        # self.keras_model.compile(optimizer=optimizer, loss=[None] * len(self.keras_model.outputs), metrics = ['accuracy'])
+        # The loss layers register their own symbolic losses for Keras 3.
+        # Weight decay is supplied through the optimizer, avoiding the removed
+        # Functional-model `add_loss()` path.
         self.keras_model.compile(optimizer=optimizer, loss=[None] * len(self.keras_model.outputs))
-
-        # Add metrics for losses
-        for name in loss_names:
-            if name in self.keras_model.metrics_names:
-                continue
-            layer = self.keras_model.get_layer(name)
-            self.keras_model.metrics_names.append(name)
-            loss = (tf.reduce_mean(input_tensor=layer.output, keepdims=True) * self.config.LOSS_WEIGHTS.get(name, 1.))
-            self.keras_model.metrics_tensors.append(loss) # TODO: WHERE IS METRICS_TENSORS?
-            #self.keras_model.add_metric(loss, name=name, aggregation='mean')
 
     def train(self, dataset):
         """
@@ -1705,9 +1692,9 @@ class RCNN(object):
 
         # Create a callback for saving weights
         if self.config.TRAIN_ONLY_RPN:
-            filename = "rpn_"+self.config.BACKBONE+"_weights.{epoch:02d}.hdf5"
+            filename = "rpn_"+self.config.BACKBONE+"_weights.{epoch:02d}.weights.h5"
         else:
-            filename = "rcnn_"+self.config.BACKBONE+"_weights.{epoch:02d}.hdf5"
+            filename = "rcnn_"+self.config.BACKBONE+"_weights.{epoch:02d}.weights.h5"
         rlrp = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=10, min_delta=1E-7)
         lrm = LearningRateMonitor()
         callbacks = [ModelCheckpoint(os.path.join(self.config.WEIGHT_PATH, filename), save_weights_only=True), rlrp, lrm]
@@ -1728,70 +1715,16 @@ class RCNN(object):
         return history, lrm
 
     def load_weights(self, filepath, by_name=False, exclude=None):
-        """Modified version of the corresponding Keras function with
-        the addition of multi-GPU support and the ability to exclude
-        some layers from loading.
-        exclude: list of layer names to exclude
-        """
-        import h5py
-        from tensorflow.python.keras.saving import hdf5_format
-
+        """Load weights using Keras' supported public API."""
         if exclude:
             by_name = True
-
-        if h5py is None:
-            raise ImportError('`load_weights` requires h5py.')
-        with h5py.File(filepath, mode='r') as f:
-            if 'layer_names' not in f.attrs and 'model_weights' in f:
-                f = f['model_weights']
-
-            # In multi-GPU training, we wrap the model. Get layers
-            # of the inner model because they have the weights.
-            keras_model = self.keras_model
-            layers = keras_model.inner_model.layers if hasattr(keras_model, "inner_model")\
-                else keras_model.layers
-
-            # Exclude some layers
-            if exclude:
-                layers = filter(lambda l: l.name not in exclude, layers)
-
-            if by_name:
-                hdf5_format.load_weights_from_hdf5_group_by_name(f, layers)
-            else:
-                hdf5_format.load_weights_from_hdf5_group(f, layers)
-
-        # Update the log directory
-        # self.set_log_dir(filepath)
-
-    def load_weights_by_name(self, filepath, verbose=False):
-        """Modified version of the corresponding Keras function with
-        the addition of multi-GPU support and the ability to exclude
-        some layers from loading.
-        """
-        import h5py
-        def load_model_weights(cmodel, weights):
-            for layer in cmodel.layers:
-                print(layer.name)
-                if hasattr(layer, 'layers'):
-                    load_model_weights(layer, weights[layer.name])
-                else:
-                    for w in layer.weights:
-                        _, name = w.name.split('/')
-                        if verbose:
-                            print(w.name)
-                        try:
-                            w.assign(weights[layer.name][name][()])
-                        except:
-                            w.assign(weights[layer.name][layer.name][name][()])
-
-        with h5py.File(filepath, 'r') as f:
-            load_model_weights(self.keras_model, f)
+        return self.keras_model.load_weights(filepath, by_name=by_name, skip_mismatch=bool(exclude))
 
     def get_imagenet_weights(self, backbone):
         """Downloads ImageNet trained weights from Keras.
         Returns path to weights file.
         """
-        from keras.utils.data_utils import get_file
+        from tensorflow.keras.utils import get_file
         # Download Inception-ResNet-v2/ResNetv2 weights pretrained in ImageNet
         if 'inception' in backbone:
             TF_WEIGHTS_PATH_NO_TOP = ('https://storage.googleapis.com/tensorflow/'

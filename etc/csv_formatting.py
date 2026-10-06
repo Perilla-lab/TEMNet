@@ -2,7 +2,7 @@ import csv, re, copy, os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from keras.preprocessing.image import img_to_array, load_img
+from tensorflow.keras.preprocessing.image import img_to_array, load_img
 
 
 def parse_region_data(csvname):

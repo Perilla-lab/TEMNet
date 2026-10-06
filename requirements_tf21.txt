@@ -1,6 +1,2 @@
-tensorflow==2.1
-Keras==2.3.1
-opencv-python
-matplotlib
-h5py==2.10
-protobuf==3.20.*
+# Backward-compatible filename. The supported runtime is TensorFlow 2.21.
+-r requirements.txt

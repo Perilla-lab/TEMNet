@@ -15,7 +15,7 @@ class ResNet101(object):
         """Downloads ImageNet trained weights from Keras.
         Returns path to weights file.
         """
-        from keras.utils.data_utils import get_file
+        from tensorflow.keras.utils import get_file
         TF_WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/'\
                                  'releases/download/v0.2/'\
                                  'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
@@ -26,36 +26,10 @@ class ResNet101(object):
         return weights_path
 
     def load_weights(self, filepath, model, by_name=True, exclude=None):
-        """Modified version of the corresponding Keras function with
-        the addition of multi-GPU support and the ability to exclude
-        some layers from loading.
-        exclude: list of layer names to exclude
-        """
-        import h5py
-        from tensorflow.python.keras.saving import hdf5_format
-
+        """Load legacy HDF5 weights through Keras' public serialization API."""
         if exclude:
             by_name = True
-
-        if h5py is None:
-            raise ImportError('`load_weights` requires h5py.')
-        with h5py.File(filepath, mode='r') as f:
-            if 'layer_names' not in f.attrs and 'model_weights' in f:
-                f = f['model_weights']
-
-            # In multi-GPU training, we wrap the model. Get layers
-            # of the inner model because they have the weights.
-            layers = model.inner_model.layers if hasattr(model, "inner_model")\
-                else model.layers
-
-            # Exclude some layers
-            if exclude:
-                layers = filter(lambda l: l.name not in exclude, layers)
-
-            if by_name:
-                hdf5_format.load_weights_from_hdf5_group_by_name(f, layers)
-            else:
-                hdf5_format.load_weights_from_hdf5_group(f, layers)
+        return model.load_weights(filepath, by_name=by_name, skip_mismatch=bool(exclude))
 
     def build_backbone(self, input_tensor, architecture, num_classes, stage5=False, train_bn=None):
         """Build a ResNet model. We could change this for another backbone
@@ -235,7 +209,7 @@ if __name__ == '__main__':
     model = M.finetuneNetwork(model, "resnet101") #Unset the final softmax layer and put a new one with 3 categorical classes
     model.summary()
     sgd = KO.SGD(config.LEARNING_RATE, momentum=0.9, clipnorm=5.0)
-    model.compile(optimizer=tf.keras.optimizers.Adadelta(lr=config.LEARNING_RATE),
+    model.compile(optimizer=tf.keras.optimizers.Adadelta(learning_rate=config.LEARNING_RATE),
                   loss='categorical_crossentropy', 
                   metrics=['accuracy'])
     history = model.fit(train_gen,
@@ -243,7 +217,7 @@ if __name__ == '__main__':
                         epochs=config.EPOCHS,
                         validation_data=val_gen,
                         verbose=1)
-    model.save_weights(config.PRETRAINED_MODEL_PATH + "resnet101_weights_nopretrain.h5")
-    model.save(config.PRETRAINED_MODEL_PATH + "resnet101_nopretrain.h5")
+    model.save_weights(config.PRETRAINED_MODEL_PATH + "resnet101_weights_nopretrain.weights.h5")
+    model.save(config.PRETRAINED_MODEL_PATH + "resnet101_nopretrain.keras")
     G.graph_results(config.GRAPH_PATH, history, config.LEARNING_RATE, config.BATCH_SIZE, "Adadelta", "resnet101_nopretrain", config.RESOLUTION)
  

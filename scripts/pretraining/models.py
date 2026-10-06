@@ -5,8 +5,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import tensorflow as tf
 import os
 from tensorflow import keras
-from keras import models, layers, optimizers
-from keras.models import Model, Sequential
+from tensorflow.keras import models, layers, optimizers
+from tensorflow.keras.models import Model, Sequential
 #import kerastuner as kt
 import graphing as G
 import input_pipeline as I
@@ -89,7 +89,7 @@ hypertune_temnet_network: use Keras Tuner library to optimize hyperparameters fo
    	tf.keras.layers.Dense(hp_denseSize2, activation=tf.nn.relu),
     tf.keras.layers.Dense(3, activation=tf.nn.softmax)
 	])
-  model.compile(optimizer=tf.keras.optimizers.Adam(lr=hp_learningRate),
+  model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=hp_learningRate),
                 loss='categorical_crossentropy', 
                 metrics=['accuracy'])    
   return model"""

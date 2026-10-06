@@ -3,7 +3,7 @@ import os, logging, argparse
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import tensorflow as tf
 from tensorflow import keras
-from keras import optimizers
+from tensorflow.keras import optimizers
 import matplotlib.pyplot as plt
 
 
@@ -45,7 +45,7 @@ def temnet_network(config, weights, hypertune):
     else:
       pnet.compile(config)
       # Checkpointing saves the weight set at every 5th epoch in ../models/checkpoints
-      cp_callback = keras.callbacks.ModelCheckpoint(filepath=config.CHECKPOINT_PATH + 'temnet/temnet-weights-{epoch:02d}.hdf5',
+      cp_callback = keras.callbacks.ModelCheckpoint(filepath=config.CHECKPOINT_PATH + 'temnet/temnet-weights-{epoch:02d}.weights.h5',
                                                     save_weights_only=True, monitor="val_accuracy", mode="max", save_best_only=False,
                                                     verbose=1)
       # If you are training on a pre-existing weight set
@@ -61,7 +61,7 @@ def temnet_network(config, weights, hypertune):
           pnet.model.load_weights(weightPath, by_name=True)
       else:
         print("No weight set specified...")
-      pnet.model.save_weights(config.CHECKPOINT_PATH.format(epoch=0))
+      pnet.model.save_weights(config.CHECKPOINT_PATH + 'temnet/temnet-initial.weights.h5')
       hist = pnet.model.fit(t_imgs,
                        t_cat_labs, 
                        batch_size=config.BATCH_SIZE, 
@@ -69,7 +69,7 @@ def temnet_network(config, weights, hypertune):
                        shuffle=True, 
                        callbacks=[cp_callback],
                        validation_data=(v_imgs, v_cat_labs))
-      pnet.model.save_weights(config.PRETRAINED_MODEL_PATH + 'temnet_weights_batch_norm.h5')
+      pnet.model.save_weights(config.PRETRAINED_MODEL_PATH + 'temnet_weights_batch_norm.weights.h5')
       pnet.model.save(config.MODEL_PATH) # Using batch normalization and mirrored strategy with tensorflow 2.1 can be problematic, comment this line if that's the case. This bug is fixed in tensorflow 2.2
       G.graph_results(config.GRAPH_PATH, hist, config.LEARNING_RATE, config.BATCH_SIZE, "Adam", pnet.name, config.RESOLUTION)
       loss, acc = pnet.model.evaluate(v_imgs, v_cat_labs, verbose = 2)
@@ -90,7 +90,7 @@ def pretrained_network(modelName, config):
     model = M.create_application_model(modelName, input_tens)
     model = M.finetuneNetwork(model, modelName)
     model.summary()
-    model.compile(optimizer=tf.keras.optimizers.Adadelta(lr=config.LEARNING_RATE),
+    model.compile(optimizer=tf.keras.optimizers.Adadelta(learning_rate=config.LEARNING_RATE),
                   loss='categorical_crossentropy', 
                   metrics=['accuracy'])
     history = model.fit(train_gen,
@@ -98,7 +98,7 @@ def pretrained_network(modelName, config):
                         epochs=config.EPOCHS,
                         validation_data=val_gen,
                         verbose=1)
-    model.save(config.PRETRAINED_MODEL_PATH + modelName)
+    model.save(config.PRETRAINED_MODEL_PATH + modelName + ".keras")
     G.graph_results(config.GRAPH_PATH, history, config.LEARNING_RATE, config.BATCH_SIZE, "Adadelta", modelName, config.RESOLUTION)
     return history.history['val_accuracy']
 
@@ -127,7 +127,7 @@ def model_ensemble(config):
     for f in range(len(names)):
       models.append(M.finetuneNetwork(M.create_application_model(names[f], input_tens), names[f]))
     for i in models:
-      i.compile(optimizer=tf.keras.optimizers.Adadelta(lr=config.LEARNING_RATE),
+      i.compile(optimizer=tf.keras.optimizers.Adadelta(learning_rate=config.LEARNING_RATE),
                 loss='categorical_crossentropy', 
                 metrics=['accuracy'])
       hist = i.fit(train_gen,
@@ -136,7 +136,7 @@ def model_ensemble(config):
                    validation_data=val_gen,
                    verbose=1)
       history.append(hist.history['val_accuracy'])
-      i.save(config.PRETRAINED_MODEL_PATH + str(names[counter]))
+      i.save(config.PRETRAINED_MODEL_PATH + str(names[counter]) + ".keras")
       counter += 1
     G.plot_ensemble(config.GRAPH_PATH, history, config.LEARNING_RATE, config.BATCH_SIZE, "Adadelta", config.RESOLUTION)
     

@@ -1,6 +1,6 @@
 import logging
 import tensorflow as tf
-import keras
+from tensorflow import keras
 # from typeguard import typechecked
 
 """Types for function signatures"""

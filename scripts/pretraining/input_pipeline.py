@@ -3,9 +3,9 @@ import os, random, cv2
 import tensorflow as tf
 from tensorflow import image, keras
 import numpy as np
-from keras import utils, models, layers, optimizers
-from keras.utils import to_categorical
-from keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
+from tensorflow.keras import utils, models, layers, optimizers
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img
 from classes import Image
 #from linetimer import CodeTimer #Used for benchmarking purposes
 

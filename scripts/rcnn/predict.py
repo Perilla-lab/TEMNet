@@ -4,7 +4,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 import numpy as np
 import matplotlib.pyplot as plt
-from keras.preprocessing.image import load_img, img_to_array
+from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import tensorflow as tf
 
 from model import RCNN
@@ -797,7 +797,7 @@ if __name__ == '__main__':
     rcnn = RCNN(config, 'inference')
     rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
     print(f'Saving model for backbone {args.backbone}')
-    rcnn.keras_model.save(str(args.backbone))
+    rcnn.keras_model.save(str(args.backbone) + ".keras")
   elif(args.data == 'test_saved_model'):
     import inspect
 

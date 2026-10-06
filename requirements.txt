@@ -1,6 +1,5 @@
-numpy
-tensorflow>=2.1
-keras
+numpy>=1.26
+tensorflow==2.21.0
 opencv-python
 pillow!=8.3
 matplotlib

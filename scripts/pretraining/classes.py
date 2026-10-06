@@ -18,7 +18,7 @@ class Config(object):
     # Paths
     # TEMNet network paths
     CHECKPOINT_PATH = '/scratch/07655/jsreyl/hivclass/checkpoints/'   # Path for training checkpoints
-    MODEL_PATH = '/scratch/07655/jsreyl/hivclass/models/myModel'      # Path to save model
+    MODEL_PATH = '/scratch/07655/jsreyl/hivclass/models/my_model.keras'      # Path to save model
     IMAGE_PATH = '/scratch/07655/jsreyl/imgs/class_imgs'              # Path for input images
 
     # Pre-trained network paths
@@ -44,7 +44,7 @@ class TEMNet:
         #    self.model.load_weights(tf.train.latest_checkpoint(config.CHECKPOINT_PATH + weights)
     
     def compile(self, config):
-        self.model.compile(optimizer=tf.keras.optimizers.Adam(lr=config.LEARNING_RATE),
+        self.model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=config.LEARNING_RATE),
                            loss='categorical_crossentropy',
                            metrics=['accuracy'])
 
@@ -53,3 +53,6 @@ class TEMNet:
 #class Dataset:
     #def __init__(self, path_to_imgs):
         
+
+# Backward-compatible name used by the pretrained-backbone modules.
+PerillaNet = TEMNet

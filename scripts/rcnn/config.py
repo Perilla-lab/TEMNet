@@ -6,8 +6,8 @@ Developed by Hagan Beatson, Alex Brier and Juan Rey @ Perillalab University of D
 """
 
 import cv2, copy, os, argparse
-from keras.preprocessing.image import img_to_array, load_img
-from keras.utils import Sequence
+from tensorflow.keras.preprocessing.image import img_to_array, load_img
+from tensorflow.keras.utils import Sequence
 import numpy as np
 import time
 

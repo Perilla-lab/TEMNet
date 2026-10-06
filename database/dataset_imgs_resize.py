@@ -2,7 +2,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2' #Reduce the number of messages by tensorflow
 import tensorflow as tf
 from tensorflow import keras
-from keras.preprocessing.image import load_img, img_to_array, array_to_img, save_img
+from tensorflow.keras.preprocessing.image import load_img, img_to_array, array_to_img, save_img
 import numpy as np
 import concurrent.futures #for processing in parallel
 import time

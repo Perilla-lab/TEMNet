@@ -15,7 +15,7 @@ TEMNet is a CNN backbone designed for viral particle detection from TEM microgra
 
 ## Getting Started
 
-TEMNet is built using **Tensorflow** and **Keras** version 2.1, **OpenCV** is an optional dependency used for image augmentation.
+TEMNet is built using **TensorFlow 2.21** and its bundled **Keras 3** API, **OpenCV** is an optional dependency used for image augmentation.
 
 Important scripts for model definition, training and inference procedures are stored in the **'scripts'** directory.
 
@@ -90,11 +90,11 @@ your shell prompt now should look like
 2. Install the python dependencies
 
 ```
-pip install -r requirements_tf21.txt
+pip install -r requirements.txt
 ```
 
 these will be installed to the environment directory **/temnet-env/** so no need to worry about breaking your system :) .
-The training pipeline is currently restricted to tensorflow 2.1, if you wish to train the network you should use requirements_tf21.txt. For inference any tensorflow version >=2.1 works as specified in requirements.txt.
+TEMNet is validated with TensorFlow 2.21 and Keras 3 on Python 3.10–3.13. For Linux GPU support, install with `pip install "tensorflow[and-cuda]==2.21.0"` instead of the TensorFlow line in requirements.txt.
 
 ## Downloading the dataset
 
