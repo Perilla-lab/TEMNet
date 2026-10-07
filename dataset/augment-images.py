@@ -1,533 +1,486 @@
-#This code is supposed to work as a stand alone to generate our datasets from the input images, that's why I'm copying some functions from or input_pipeline.py ~ JR
-import matplotlib.pyplot as plt
+#!/usr/bin/env python3
+"""Crop and augment annotated TEM images while preserving bounding boxes."""
+
+import argparse
+import csv
+import json
+from pathlib import Path
+
+import cv2
 import numpy as np
-import copy
 from PIL import Image
-import tensorflow as tf
-#from tensorflow.keras.preprocessing.image import img_to_array, load_img, array_to_img, save_img
-from tensorflow.keras.preprocessing.image import array_to_img, save_img
-import cv2, re, csv, os
 
-def load_image_safe(imgname, target_size=None, verbose = False):
-    """
-    Loads a .tif or .png image and converts it to a int8 bit representation
-    INPUTS:
-        imgname: path of the image to be loaded
-    OUTPUTS
-        np_img: np.uint8 array containing the 8bit representation of the image (This is the way it would be seen in fiji)
-    """
-    #Open TIF image using PIL
-    im = Image.open(imgname)
-    # Load the data into a flat numpy array of the correct type and reshape
-    if verbose: print(f'Loading {imgname} with type {im.mode}')
-    if target_size!=None:
-        if verbose: print(f'Resizing to: {target_size}')
-        im = im.resize(size=target_size, resample=Image.NEAREST)
+
+CSV_FIELDS = [
+    'filename', 'file_size', 'file_attributes', 'region_count', 'region_id',
+    'region_shape_attributes', 'region_attributes',
+]
+DEFAULT_AUGMENTATIONS = (
+    'horizontal-flip', 'vertical-flip', '180-rotation', 'gaussian-noise',
+)
+SUPPORTED_AUGMENTATIONS = DEFAULT_AUGMENTATIONS + (
+    'salt-pepper', 'translate-up', 'translate-down', 'translate-right',
+    'translate-left',
+)
+
+def load_image_safe(imgname, target_size=None, verbose=False):
+    """Load an image as a three-channel ``uint8`` NumPy array."""
+    image_path = Path(imgname)
+    with Image.open(image_path) as source:
+        if verbose:
+            print(f'Loading {image_path} with mode {source.mode}')
+        if target_size is not None:
+            if verbose:
+                print(f'Resizing to: {target_size}')
+            source = source.resize(
+                tuple(target_size), resample=Image.Resampling.NEAREST)
+        image = np.asarray(source)
+
+    if image.ndim == 3 and image.shape[-1] == 4:
+        image = image[..., :3]
+    if image.ndim not in (2, 3):
+        raise ValueError(f'unsupported image shape {image.shape} for {image_path}')
+    if verbose:
+        print(f'Loaded dtype={image.dtype}, shape={image.shape}, '
+              f'range=({image.min()}, {image.max()})')
+
+    if image.dtype != np.uint8:
+        image = image.astype(np.float32)
+        image_min = float(image.min())
+        image_max = float(image.max())
+        if image_max > image_min:
+            image = np.rint(
+                (image - image_min) * (255.0 / (image_max - image_min)))
+        else:
+            image = np.full(
+                image.shape, np.clip(image_min, 0, 255), dtype=np.float32)
+        image = image.astype(np.uint8)
+
+    if image.ndim == 2:
+        image = np.repeat(image[..., np.newaxis], 3, axis=-1)
+    elif image.shape[-1] == 1:
+        image = np.repeat(image, 3, axis=-1)
+    elif image.shape[-1] != 3:
+        raise ValueError(
+            f'unsupported channel count {image.shape[-1]} for {image_path}')
+    return image
+
+
+def _json_object(value, field_name, csv_path):
     try:
-        dtype = {'F': np.float32, 'L': np.uint8, 'I;16': np.uint16, 'I': np.uint32}[im.mode] 
-        np_img = np.array(im, dtype=dtype)
-    except:
-        #Let numpy decide which dtype to use, we're gonna send this to np.uint8 anyways lol
-        np_img = np.array(im)
-    if verbose: print(f"Loaded into numpy array of type {np_img.dtype} and shape {np_img.shape}")
-    if verbose: print(f"Image minmax: {(np_img.min(), np_img.max())}")
-    if len(np_img.shape) < 3:  print(f"WARNING: Image shape: {np_img.shape} contains one channel, stacking to make three channels...")
-    #w, h = im.size
-    #np_img = np.image.reshape((h, w, np_img.size // (w * h)))
-    #Normalize the image 
-    np_img = (np_img - np_img.min())/(np_img.max() - np_img.min())
-    # Copy the data into each RGB channel for visualization purposes
-    if len(np_img.shape) == 2: np_img = np.stack([np_img, np_img, np_img], axis=2)
-    # Scale the image to get a 8bit representation
-    np_img =  (255*np_img).astype(np.uint8)
-    #np_img = np_img[:,:,:,0]
-    return np_img
-
+        parsed = json.loads(value or '{}')
+    except json.JSONDecodeError as error:
+        # Older TEMNet CSVs stored the class value without JSON quotes, for
+        # example {"particle_class":immature}. Accept only that known form.
+        prefix = '{"particle_class":'
+        if field_name == 'region_attributes' and value.startswith(prefix) \
+                and value.endswith('}'):
+            label = value[len(prefix):-1].strip().strip('"')
+            if label and not any(character in label for character in '{}:,'):
+                return {'particle_class': label}
+        raise ValueError(
+            f'invalid {field_name} JSON in {csv_path}: {value!r}') from error
+    if not isinstance(parsed, dict):
+        raise ValueError(f'{field_name} must be a JSON object in {csv_path}')
+    return parsed
 
 def parse_region_data(csvname):
-  """
-  parse_region_data: Open a CSV for an annotated dataset and parse information to generate RoIs to validate against
-  Inputs:
-    csvname, the filename of the CSV you wish to parse
-  Outputs: idx, lab, x, y, w, h, the respective metadata contained within the CSV
-  """
-  print("input_pypeline: parsing data from file", csvname)
-  idx = []
-  x   = []
-  y   = []
-  w   = []
-  h   = []
-  lab = []
-  with open(csvname, newline='') as labels:
-    fields = ['#filename',
-              'file_size',
-              'file_attributes',
-              'region_count',
-              'region_id',
-              'region_shape_attributes',
-              'region_attributes']
-    reader = csv.DictReader(labels,
-      fieldnames=fields,
-      dialect='excel',
-      quoting=csv.QUOTE_MINIMAL)
-    for row in reader:
-      lt = row['region_attributes']
-      lt = str(re.sub(r'([{}"])','',lt))
-      lt = lt.split(':')
-      if len(lt) == 2:
-        lab.append(lt[1])
-      idx.append(row['region_id'])
-      tmp = row['region_shape_attributes']
-      tmp = str(re.sub(r'([{}"])','',tmp))
-      tmp = tmp.split(',')
-      for t in tmp:
-        tt = t.split(':')
-        if len(tt) == 1:
-          continue
-        else:
-          if tt[0] == 'x':
-            x.append(int(tt[1]))
-          elif tt[0] == 'y':
-            y.append(int(tt[1]))
-          elif tt[0] == 'height':
-            h.append(int(tt[1]))
-          elif tt[0] == 'width':
-            w.append(int(tt[1]))
-  idx.remove('region_id')
-  print("input_pypeling: parsing region data with length (number of GT boxes) ", len(x))
-  return idx, lab, x, y, w, h
+    """Read VIA rectangle annotations and return IDs, labels, x, y, w, h."""
+    csv_path = Path(csvname)
+    idx, lab, x, y, w, h = [], [], [], [], [], []
+    with csv_path.open(newline='', encoding='utf-8-sig') as labels:
+        reader = csv.DictReader(labels)
+        present = set(reader.fieldnames or ())
+        missing = set(CSV_FIELDS[1:]) - present
+        if not ({'filename', '#filename'} & present):
+            missing.add('filename')
+        if missing:
+            raise ValueError(f'{csv_path} is missing columns: {sorted(missing)}')
+        for line_number, row in enumerate(reader, start=2):
+            shape = _json_object(
+                row['region_shape_attributes'],
+                'region_shape_attributes', csv_path)
+            attributes = _json_object(
+                row['region_attributes'], 'region_attributes', csv_path)
+            if shape.get('name') != 'rect':
+                raise ValueError(
+                    f"unsupported region shape {shape.get('name')!r} "
+                    f'in {csv_path}:{line_number}')
+            try:
+                x.append(int(shape['x']))
+                y.append(int(shape['y']))
+                w.append(int(shape['width']))
+                h.append(int(shape['height']))
+                lab.append(str(attributes['particle_class']))
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    f'invalid rectangle in {csv_path}:{line_number}') from error
+            idx.append(row['region_id'])
+    return idx, lab, x, y, w, h
 
-def write_region_data(csvname, idx, lab, x, y, w, h, max_height, max_width):
-  """
-  write_region_data: Open a CSV and write information equivalent to that of the dataset to generate RoIs to validate against. Essentially the reverse of parse_region_data
-  Inputs:
-    csvname: the filename of the CSV you wish to write
-    idx, lab, x, y, w, h: numpy arrays containing the RoI info to be written in the csv
-    max_height, max_width: dimensions of the source image where the RoIs should exist, this is for validation that no RoI coordinate goes outside the image
-  Outputs:
-    None, writes a CSV with the aforementioned data that can be parsed with parse_region_data
-  """
-  #Set all boxes outside our image to zero, this allows us to delete them afterwards
-  local_w=copy.deepcopy(w)
-  local_h=copy.deepcopy(h)
-  local_w[x+w>max_width]=0
-  local_w[x<0]=0
-  local_h[y+h>max_height]=0
-  local_h[y<0]=0
-  print("input_pypeline: writing data to file", csvname)
-  with open(csvname, mode='w', newline='') as labels:
-    fields = ['#filename',
-              'file_size',
-              'file_attributes',
-              'region_count',
-              'region_id',
-              'region_shape_attributes',
-              'region_attributes']
-    writer = csv.DictWriter(labels,
-      fieldnames=fields,
-      dialect='excel',
-      quoting=csv.QUOTE_MINIMAL)
-    
-    writer.writeheader()
-    n_region=0
-    for i in range(len(x)):
-      if (local_h[i]!=0 and local_w[i]!=0):
-        n_region+=1
-        writer.writerow({'#filename': csvname,
-                       'file_size': 'irrelevant', 
-                       'file_attributes': '{}',
-                       'region_count': len(x),
-                       'region_id': idx[i],
-                       'region_shape_attributes': '{"name":"rect","x":'+str(x[i])+',"y":'+str(y[i])+',"width":'+str(w[i])+',"height":'+str(h[i])+'}',
-                       'region_attributes':'{"particle_class":'+lab[i]+'}'
-                       })
-  print(f"input_pypeling: done writing region data with length (number of GT boxes) {n_region} to {csvname}")
 
-def augment(image, x, y, w, h, atype=None):
-  """
-  augment: Transform an image according to a given atype of transformation and applies it, also transform the box coordinates so they match the transformed image
-  Inputs:
-    image: numpy matrix representation of the source image to transform
-    x, y, w, h: numpy arrays containing the coordinates of the RoI boxes corresponding to image
-   atype: augmentation type: None, 'horizontal-flip', 'vertical-flip', 'rotation-180', 'salt-pepper' (also known as gaussian noise), 'translate-up', 'translate-down', 'translate-left', 'translate-rigth'
-  Outputs:
-    aug_image, aug_x, aug_y, aug_w, aug_h: augmented image as well as the modified box coordinates
-  """
-  img_height, img_width = image.shape[:2]
-  #print("img h:", img_height)
-  #print("img w:", img_width)
-  height = np.full(len(x), img_height)
-  #print("len h:", len(height))
-  width = np.full(len(x), img_width)
-  #print("len w:", len(width))
-  aug_image = image
-  aug_x, aug_y, aug_w, aug_h = x, y, w, h
-  if atype==None:
-    aug_image = image
-    aug_x, aug_y, aug_w, aug_h = x, y, w, h
-  elif atype=='horizontal-flip':
-    aug_image = cv2.flip(image,1)
-    aug_x, aug_y, aug_w, aug_h = width - (x+w), y, w, h
-  elif atype=='vertical-flip':
-    aug_image = cv2.flip(image,0)
-    aug_x, aug_y, aug_w, aug_h = x, height - (y+h), w, h
-  elif atype=='180-rotation':
-    aug_image = cv2.flip(image,-1)
-    aug_x, aug_y, aug_w, aug_h = width - (x+w), height- (y+h), w, h
-  elif atype=='salt-pepper':
-    #Add gaussian noise of mean 0 and stddev 1
-    aug_image=tf.cast(image/255, dtype = tf.float32)
-    noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=1.0, dtype=tf.float32)
-    aug_image = tf.add(aug_image, 0.05*noise)
-    aug_image=tf.cast(aug_image*255,dtype=tf.uint8)
-    aug_x, aug_y, aug_w, aug_h = x, y, w, h
-  elif atype=='translate-up':
-    #Pad the image to move it and then crop it, displace the box coordinates accordingly
-    pad_top, pad_bottom, pad_left, pad_right = 0, img_height//2, 0, 0
-    aug_image = tf.image.pad_to_bounding_box(image, pad_top, pad_left, img_height + pad_bottom + pad_top, img_width + pad_right + pad_left)
-    aug_image = tf.image.crop_to_bounding_box(aug_image, pad_bottom, pad_right, img_height, img_width)
-    aug_x, aug_y, aug_w, aug_h = x -(pad_right - pad_left)*np.ones(len(x), dtype='int32'), y -np.full(len(x),(pad_bottom - pad_top)), w, h
-  elif atype=='translate-down':
-    pad_top, pad_bottom, pad_left, pad_right = img_height//2, 0, 0, 0
-    aug_image = tf.image.pad_to_bounding_box(image, pad_top, pad_left, img_height + pad_bottom + pad_top, img_width + pad_right + pad_left)
-    aug_image = tf.image.crop_to_bounding_box(aug_image, pad_bottom, pad_right, img_height, img_width)
-    aug_x, aug_y, aug_w, aug_h = x -(pad_right - pad_left)*np.ones(len(x), dtype='int32'), y -np.full(len(x),pad_bottom - pad_top), w, h
-  elif atype=='translate-right':
-    pad_top, pad_bottom, pad_left, pad_right = 0, 0, img_width//2, 0
-    aug_image = tf.image.pad_to_bounding_box(image, pad_top, pad_left, img_height + pad_bottom + pad_top, img_width + pad_right + pad_left)
-    aug_image = tf.image.crop_to_bounding_box(aug_image, pad_bottom, pad_right, img_height, img_width)
-    aug_x, aug_y, aug_w, aug_h = x -(pad_right - pad_left)*np.ones(len(x), dtype='int32'), y -np.full(len(x),(pad_bottom - pad_top)), w, h
-  elif atype=='translate-left':
-    pad_top, pad_bottom, pad_left, pad_right = 0, 0, 0, img_width//2
-    aug_image = tf.image.pad_to_bounding_box(image, pad_top, pad_left, img_height + pad_bottom + pad_top, img_width + pad_right + pad_left)
-    aug_image = tf.image.crop_to_bounding_box(aug_image, pad_bottom, pad_right, img_height, img_width)
-    aug_x, aug_y, aug_w, aug_h = x -(pad_right - pad_left)*np.ones(len(x), dtype='int32'), y -np.full(len(x),(pad_bottom - pad_top)), w, h
+def write_region_data(
+        csvname, idx, lab, x, y, w, h, max_height, max_width,
+        image_filename=None):
+    """Write valid rectangle annotations in VIA-compatible CSV format."""
+    arrays = [np.asarray(values) for values in (idx, lab, x, y, w, h)]
+    if len({len(values) for values in arrays}) != 1:
+        raise ValueError('annotation arrays must all have the same length')
+    indices, labels = arrays[:2]
+    xs, ys, widths, heights = [
+        values.astype(np.int64) for values in arrays[2:]]
+    valid = (
+        (xs >= 0) & (ys >= 0) & (widths > 0) & (heights > 0)
+        & (xs + widths <= int(max_width))
+        & (ys + heights <= int(max_height)))
+    indices, labels, xs, ys, widths, heights = [
+        values[valid]
+        for values in (indices, labels, xs, ys, widths, heights)]
 
-  return aug_image, aug_x, aug_y, aug_w, aug_h
+    csv_path = Path(csvname)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    filename = image_filename or (
+        csv_path.name.removeprefix('region_data_').replace('.csv', '.png'))
+    with csv_path.open('w', newline='', encoding='utf-8') as stream:
+        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        for region_id, label, box_x, box_y, box_w, box_h in zip(
+                indices, labels, xs, ys, widths, heights):
+            writer.writerow({
+                'filename': filename,
+                'file_size': 'irrelevant',
+                'file_attributes': '{}',
+                'region_count': len(xs),
+                'region_id': region_id,
+                'region_shape_attributes': json.dumps({
+                    'name': 'rect', 'x': int(box_x), 'y': int(box_y),
+                    'width': int(box_w), 'height': int(box_h),
+                }, separators=(',', ':')),
+                'region_attributes': json.dumps(
+                    {'particle_class': str(label)}, separators=(',', ':')),
+            })
+    return len(xs)
+
+
+def _clip_boxes(x, y, w, h, image_height, image_width):
+    xs, ys, widths, heights = [
+        np.asarray(values, dtype=np.int32) for values in (x, y, w, h)]
+    x1 = np.clip(xs, 0, image_width)
+    y1 = np.clip(ys, 0, image_height)
+    x2 = np.clip(xs + widths, 0, image_width)
+    y2 = np.clip(ys + heights, 0, image_height)
+    return x1, y1, np.maximum(x2 - x1, 0), np.maximum(y2 - y1, 0)
+
+def augment(
+        image, x, y, w, h, atype=None, rng=None, noise_stddev=0.05):
+    """Transform an image and its ``(x, y, width, height)`` boxes."""
+    if atype not in (None,) + SUPPORTED_AUGMENTATIONS:
+        raise ValueError(
+            f'unsupported augmentation {atype!r}; '
+            f'choose from {SUPPORTED_AUGMENTATIONS}')
+    image = np.asarray(image)
+    xs, ys, widths, heights = [
+        np.asarray(values, dtype=np.int32).copy()
+        for values in (x, y, w, h)]
+    if len({len(values) for values in (xs, ys, widths, heights)}) != 1:
+        raise ValueError('box coordinate arrays must all have the same length')
+
+    image_height, image_width = image.shape[:2]
+    if atype is None:
+        augmented = image.copy()
+    elif atype == 'horizontal-flip':
+        augmented = cv2.flip(image, 1)
+        xs = image_width - (xs + widths)
+    elif atype == 'vertical-flip':
+        augmented = cv2.flip(image, 0)
+        ys = image_height - (ys + heights)
+    elif atype == '180-rotation':
+        augmented = cv2.flip(image, -1)
+        xs = image_width - (xs + widths)
+        ys = image_height - (ys + heights)
+    elif atype in ('gaussian-noise', 'salt-pepper'):
+        # ``salt-pepper`` is retained as an alias because the legacy function
+        # used that name for Gaussian noise.
+        generator = rng if rng is not None else np.random.default_rng()
+        noise = generator.normal(0.0, noise_stddev * 255.0, image.shape)
+        augmented = np.clip(
+            image.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+    else:
+        shift_y = {
+            'translate-up': -(image_height // 2),
+            'translate-down': image_height // 2,
+        }.get(atype, 0)
+        shift_x = {
+            'translate-left': -(image_width // 2),
+            'translate-right': image_width // 2,
+        }.get(atype, 0)
+        transform = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+        augmented = cv2.warpAffine(
+            image, transform, (image_width, image_height),
+            flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0)
+        xs += shift_x
+        ys += shift_y
+
+    xs, ys, widths, heights = _clip_boxes(
+        xs, ys, widths, heights, image_height, image_width)
+    return (
+        np.asarray(augmented, dtype=np.uint8),
+        xs, ys, widths, heights)
 
 def crop_image_center(image, crop_size, starting_point, idx, lab, x, y, w, h):
-  """
-  crop_image: Crop an image to a restricted region defined by a starting point and a cropping size and return the boxes inside that region
-  Inputs:
-    image: numpy matrix representation of the source image to transform
-    crop_size: [H,W] size of the cropping region in pixels
-    starting_point: [Y,X] coordinates of the zero point for the cropped image (pixels)
-    idx, lab, x, y, w, h: numpy arrays containing the index, labels and coordinates of the RoI boxes corresponding to image
-  Outputs:
-    aug_image, aug_idx, aug_lab, aug_x, aug_y, aug_w, aug_h: augmented image as well as the index, label and modified box coordinates of the RoIs inside the cropping region
-  """
-  start_y = starting_point[0]
-  start_x = starting_point[1]
-  end_y = starting_point[0]+crop_size[0]
-  end_x = starting_point[1]+crop_size[1]
-  aug_image = image[start_y:end_y, start_x:end_x]
-  #Now limit the boxes to those between our coordinates
-  #If the center of the box is in the cropped section, consider it as valid
-  centre_x = x+0.5*w
-  centre_y = y+0.5*h
-  masks = [centre_x >= start_x, centre_x <= end_x, centre_y >= start_y, centre_y <= end_y]
-  mask = masks[0] & masks[1] & masks[2] & masks[3]
-  # print(f"mask: {mask}")
-  aug_idx = idx[mask]
-  aug_lab = lab[mask]
-  aug_x = x[mask] - start_x #Adjust coordinates to the new image 0
-  aug_y = y[mask] - start_y #Adjust coordinates to the new image 0
-  aug_w = w[mask]
-  aug_h = h[mask]
-  #There might be boxes with negative coordinates or with coordiantes outside the cropped section, fix those
-  aug_w[aug_x<0]=aug_w[aug_x<0]+aug_x[aug_x<0]
-  aug_w[aug_x+aug_w>crop_size[1]]=crop_size[1]-aug_x[aug_x+aug_w>crop_size[1]]
-  aug_x[aug_x<0]=0
-  aug_h[aug_y<0]=aug_h[aug_y<0]+aug_y[aug_y<0]
-  aug_h[aug_y+aug_h>crop_size[0]]=crop_size[0]-aug_y[aug_y+aug_h>crop_size[0]]
-  aug_y[aug_y<0]=0
-  # print(f"aug_x: {aug_x}")
-  # print(f"aug_y: {aug_y}")
-  return aug_image, aug_idx, aug_lab, aug_x, aug_y, aug_w, aug_h
+    """Crop an image, retaining boxes whose centres lie inside the crop."""
+    crop_height, crop_width = map(int, crop_size)
+    start_y, start_x = map(int, starting_point)
+    xs, ys, widths, heights = [
+        np.asarray(values, dtype=np.int32) for values in (x, y, w, h)]
+    centre_x = xs + widths / 2.0
+    centre_y = ys + heights / 2.0
+    keep = (
+        (centre_x >= start_x) & (centre_x < start_x + crop_width)
+        & (centre_y >= start_y) & (centre_y < start_y + crop_height))
+    cropped_x, cropped_y, cropped_w, cropped_h = _clip_boxes(
+        xs[keep] - start_x, ys[keep] - start_y,
+        widths[keep], heights[keep], crop_height, crop_width)
+    return (
+        image[start_y:start_y + crop_height,
+              start_x:start_x + crop_width].copy(),
+        np.asarray(idx)[keep], np.asarray(lab)[keep],
+        cropped_x, cropped_y, cropped_w, cropped_h)
 
 def calculate_iou_matrix(anchors, gt_boxes):
-    """
-    calculate_iou_matrix: Creates a jaccard index matrix for each anchor and ground truth bounding box
-    Inputs:
-      anchors, an array of anchors in the form of bounding box coords
-      gt_boxes, the coords of ground truth bounding boxes
-    Ouputs:
-      iou matrix: [len(anchors),len(gt_boxes)]
-    """
+    """Return pairwise IoU for ``[x1, y1, x2, y2]`` boxes."""
+    anchors = np.asarray(anchors, dtype=np.float32).reshape(-1, 4)
+    gt_boxes = np.asarray(gt_boxes, dtype=np.float32).reshape(-1, 4)
+    if not len(anchors) or not len(gt_boxes):
+        return np.zeros((len(anchors), len(gt_boxes)), dtype=np.float32)
+    x1 = np.maximum(anchors[:, None, 0], gt_boxes[None, :, 0])
+    y1 = np.maximum(anchors[:, None, 1], gt_boxes[None, :, 1])
+    x2 = np.minimum(anchors[:, None, 2], gt_boxes[None, :, 2])
+    y2 = np.minimum(anchors[:, None, 3], gt_boxes[None, :, 3])
+    intersection = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
+    anchor_area = np.maximum(anchors[:, 2] - anchors[:, 0], 0) * np.maximum(
+        anchors[:, 3] - anchors[:, 1], 0)
+    gt_area = np.maximum(gt_boxes[:, 2] - gt_boxes[:, 0], 0) * np.maximum(
+        gt_boxes[:, 3] - gt_boxes[:, 1], 0)
+    union = anchor_area[:, None] + gt_area[None, :] - intersection
+    return np.divide(
+        intersection, union, out=np.zeros_like(intersection), where=union > 0)
 
-    #stopwatch=Stopwatch("iou_matrix")
-    y1_bbox, y1_anchor = np.meshgrid(gt_boxes[:, 1], anchors[:, 1])  # higher y value
-    x1_bbox, x1_anchor = np.meshgrid(gt_boxes[:, 0], anchors[:, 0])  # lower x value
-    y2_bbox, y2_anchor = np.meshgrid(gt_boxes[:, 3], anchors[:, 3])  # lower y value
-    x2_bbox, x2_anchor = np.meshgrid(gt_boxes[:, 2], anchors[:, 2])  # higher x value
+def crop_image(
+        image, crop_size, starting_point, idx, lab, x, y, w, h,
+        iou_threshold=0.75):
+    """Crop an image and retain boxes at least ``iou_threshold`` visible."""
+    crop_height, crop_width = map(int, crop_size)
+    start_y, start_x = map(int, starting_point)
+    image_height, image_width = image.shape[:2]
+    if crop_height <= 0 or crop_width <= 0:
+        raise ValueError('crop dimensions must be positive')
+    if crop_height > image_height or crop_width > image_width:
+        raise ValueError(
+            f'crop size {(crop_height, crop_width)} exceeds image shape '
+            f'{image.shape[:2]}')
+    if not (0 <= start_y <= image_height - crop_height
+            and 0 <= start_x <= image_width - crop_width):
+        raise ValueError(f'invalid crop origin {(start_y, start_x)}')
 
-    boxArea = (x2_bbox - x1_bbox) * (y2_bbox - y1_bbox)
-    anchorArea = (x2_anchor - x1_anchor) * (y2_anchor - y1_anchor)
+    indices, labels = np.asarray(idx), np.asarray(lab)
+    xs, ys, widths, heights = [
+        np.asarray(values, dtype=np.int32) for values in (x, y, w, h)]
+    if len({len(values) for values in (
+            indices, labels, xs, ys, widths, heights)}) != 1:
+        raise ValueError('annotation arrays must all have the same length')
 
-    x1 = np.maximum(x1_bbox, x1_anchor)
-    x2 = np.minimum(x2_bbox, x2_anchor)
-    y1 = np.maximum(y1_bbox, y1_anchor)
-    y2 = np.minimum(y2_anchor, y2_bbox)
-    intersection = np.maximum(0, y2-y1) * np.maximum(0, x2-x1)
+    end_x, end_y = start_x + crop_width, start_y + crop_height
+    clipped_x1 = np.maximum(xs, start_x)
+    clipped_y1 = np.maximum(ys, start_y)
+    clipped_x2 = np.minimum(xs + widths, end_x)
+    clipped_y2 = np.minimum(ys + heights, end_y)
+    clipped_w = np.maximum(clipped_x2 - clipped_x1, 0)
+    clipped_h = np.maximum(clipped_y2 - clipped_y1, 0)
+    original_area = widths.astype(np.float64) * heights.astype(np.float64)
+    retained_fraction = np.divide(
+        clipped_w * clipped_h, original_area,
+        out=np.zeros_like(original_area), where=original_area > 0)
+    keep = (
+        (clipped_w > 0) & (clipped_h > 0)
+        & (retained_fraction >= iou_threshold))
 
-    union = (boxArea + anchorArea) - intersection
-    return intersection / union
+    cropped = image[
+        start_y:start_y + crop_height,
+        start_x:start_x + crop_width].copy()
+    return (
+        cropped, indices[keep], labels[keep],
+        clipped_x1[keep] - start_x, clipped_y1[keep] - start_y,
+        clipped_w[keep], clipped_h[keep])
 
-def crop_image(image, crop_size, starting_point, idx, lab, x, y, w, h):
-  """
-  crop_image: Crop an image to a restricted region defined by a starting point and a cropping size and return the boxes inside that region
-  Inputs:
-    image: numpy matrix representation of the source image to transform
-    crop_size: [H,W] size of the cropping region in pixels
-    starting_point: [Y,X] coordinates of the zero point for the cropped image (pixels)
-    idx, lab, x, y, w, h: numpy arrays containing the index, labels and coordinates of the RoI boxes corresponding to image
-  Outputs:
-    aug_image, aug_idx, aug_lab, aug_x, aug_y, aug_w, aug_h: augmented image as well as the index, label and modified box coordinates of the RoIs inside the cropping region
-  """
-  IoU_treshold = 0.75
-  start_y = starting_point[0]
-  start_x = starting_point[1]
-  end_y = starting_point[0]+crop_size[0]
-  end_x = starting_point[1]+crop_size[1]
-  aug_image = image[start_y:end_y, start_x:end_x]
-  #Now limit the boxes to those between our coordinates
-  # Pre selection coordinates
-  pre_x = np.array(x)
-  pre_y = np.array(y)
-  pre_w = np.array(w)
-  pre_h = np.array(h)
-  #Modify coordinates outside the crop region so they have either 0 height or width
-  pre_w[pre_x<start_x]=np.maximum(pre_w[pre_x<start_x]+pre_x[pre_x<start_x]-start_x, 0)
-  pre_w[pre_x+pre_w>end_x]=np.maximum(end_x-pre_x[pre_x+pre_w>end_x], 0)
-  pre_x[pre_x<start_x]=start_x
-  #print(pre_w)
-  #print(pre_x)
-  pre_h[pre_y<start_y]=np.maximum(pre_h[pre_y<start_y]+pre_y[pre_y<start_y]-start_y, 0)
-  pre_h[pre_y+pre_h>end_y]=np.maximum(end_y-pre_y[pre_y+pre_h>end_y], 0)
-  pre_y[pre_y<start_y]=start_y
-  #print(pre_h)
-  #print(pre_y)
-  masks = [pre_w>0, pre_h>0] #Kill those with 0 width/height since their area is 0
-  mask = masks[0] & masks[1]
-  pre_x = pre_x[mask]
-  pre_y = pre_y[mask]
-  pre_w = pre_w[mask]
-  pre_h = pre_h[mask]
-  pre_lab = lab[mask]
-  pre_idx = idx[mask]
-  #Now we have preselected the boxes inside the cropping region
-  #Do a final selection of only those with IoU greater than 0.75, that is that at least 75% of their area is in the cropped region
-  IoU = calculate_iou_matrix(np.stack((pre_x,pre_y,pre_x+pre_w,pre_y+pre_h), axis=1), np.stack((x,y,x+w,y+h), axis=1))
-  #print("IoU shape:", IoU.shape)
-  #print(IoU)
-  pre_IoU_argmax = np.argmax(IoU, axis = 1) # Size of (#pre_x)
-  pre_IoU_max = IoU[np.arange(IoU.shape[0]), pre_IoU_argmax] # The max IoU for each preselected box
-  #print(pre_IoU_max)
-  mask = pre_IoU_max > IoU_treshold # Leave only those with IoU > 0.75
-  aug_x = pre_x[mask] - start_x #Adjust coordinates to the new image 0
-  aug_y = pre_y[mask] - start_y #Adjust coordinates to the new image 0
-  aug_w = pre_w[mask]
-  aug_h = pre_h[mask]
-  aug_lab = pre_lab[mask]
-  aug_idx = pre_idx[mask]
-  #There might be boxes with negative coordinates or with coordiantes outside the cropped section, fix those
-  aug_w[aug_x<0]=aug_w[aug_x<0]+aug_x[aug_x<0]
-  aug_w[aug_x+aug_w>crop_size[1]]=crop_size[1]-aug_x[aug_x+aug_w>crop_size[1]]
-  aug_x[aug_x<0]=0
-  aug_h[aug_y<0]=aug_h[aug_y<0]+aug_y[aug_y<0]
-  aug_h[aug_y+aug_h>crop_size[0]]=crop_size[0]-aug_y[aug_y+aug_h>crop_size[0]]
-  aug_y[aug_y<0]=0
-
-  # print(f"aug_x: {aug_x}")
-  # print(f"aug_y: {aug_y}")
-  return aug_image, aug_idx, aug_lab, aug_x, aug_y, aug_w, aug_h
+def _crop_origins(length, crop_length, step):
+    if step <= 0:
+        raise ValueError('crop step dimensions must be positive')
+    if crop_length > length:
+        raise ValueError(
+            f'crop dimension {crop_length} exceeds image dimension {length}')
+    last = length - crop_length
+    return sorted(set(range(0, last + 1, step)) | {last})
 
 def multicrop_image(image, crop_size, crop_step, idx, lab, x, y, w, h):
-  """
-  multicrop_image: Sequentially crop an image to restricted regions defined by a starting point and a cropping size and return the boxes inside those regions
-  Inputs:
-    image: numpy matrix representation of the source image to transform
-    crop_size: [H,W] size of the cropping region in pixels
-    crop_step: [Y,X] size in pixels of the step to move the cropping region
-    idx, lab, x, y, w, h: numpy arrays containing the index, labels and coordinates of the RoI boxes corresponding to image
-  Outputs:
-    crop_imgs, crop_idxs, crop_labs, crop_xs, crop_ys, crop_ws, crop_hs: arrays of cropped images as well as the corresponding indices, labels and modified box coordinates for the RoIs inside those cropperd images
-  """
-  crop_imgs = []
-  crop_idxs = []
-  crop_labs = []
-  crop_xs = []
-  crop_ys = []
-  crop_ws = []
-  crop_hs = []
-  if image.shape[1]//crop_step[1] == image.shape[1]/crop_step[1]:
-    nx = image.shape[1]//crop_step[1]
-  else:
-    nx = 1+image.shape[1]//crop_step[1]
-  if image.shape[0]//crop_step[0] == image.shape[0]/crop_step[0]:
-    ny = image.shape[0]//crop_step[0]
-  else:
-    ny = 1+image.shape[0]//crop_step[0]
-  #print(f"nx: {nx}, ny: {ny}")
-  for i in range(nx):
-    for j in range(ny):
-      starting_point = (j*crop_step[0], i*crop_step[1])
-      if starting_point[0]+crop_size[0] > image.shape[0]:
-        starting_point = (image.shape[0]-crop_size[0],starting_point[1])
-      if starting_point[1]+crop_size[1] > image.shape[1] :
-        starting_point = (starting_point[0],image.shape[1]-crop_size[1])
-      #print(f"starting point: {starting_point} for i: {i}, j: {j}")  
-      crop_img, crop_idx, crop_lab, crop_x, crop_y, crop_w, crop_h = crop_image(image, crop_size, starting_point, idx, lab, x, y, w, h)
-      #Use only images that have boxes in them
-      if len(crop_idx) < 1 :
-        continue
-      crop_imgs.append(crop_img)
-      crop_idxs.append(crop_idx)
-      crop_labs.append(crop_lab)
-      crop_xs.append(crop_x)
-      crop_ys.append(crop_y)
-      crop_ws.append(crop_w)
-      crop_hs.append(crop_h)
-  print(f"### Number of images generated: {len(crop_imgs)}")
-  return crop_imgs, crop_idxs, crop_labs, crop_xs, crop_ys, crop_ws, crop_hs
+    """Create unique overlapping crops that contain retained annotations."""
+    y_origins = _crop_origins(
+        image.shape[0], int(crop_size[0]), int(crop_step[0]))
+    x_origins = _crop_origins(
+        image.shape[1], int(crop_size[1]), int(crop_step[1]))
+    outputs = [[] for _ in range(7)]
+    for start_y in y_origins:
+        for start_x in x_origins:
+            result = crop_image(
+                image, crop_size, (start_y, start_x),
+                idx, lab, x, y, w, h)
+            if len(result[1]):
+                for output, value in zip(outputs, result):
+                    output.append(value)
+    return tuple(outputs)
 
-def expand_images(read_path, rewrite=True):
-    """
-    expand_images: Sequentially apply a list of augmentations to images in a path and save them
-    Inputs:
-      read_path: path to read images from, should be structured as /read_path/image_name/image_name.png
-    Outputs:
-      None, saves augmented images to folders /read_path/image_name-augmentation_name/image_name-augmentation_name.png
-    """
-    image_ids_all=next(os.walk(read_path))[1] #All directory names in read_path stored in an array
-    #Filter out folders that are already augmented
-    forbidden_words = ['horizontal-flip', 'vertical-flip', '180-rotation','salt-pepper']
-    image_ids = image_ids_all
-    for f in range(len(forbidden_words)):
-        image_ids = [i for i in image_ids if forbidden_words[f] not in i]
-    print(image_ids)
-    #Load every image
-    print("Number of images to process: {len(image_ids)}")
-    for i,img_name in enumerate(image_ids):
-        augmentations = ['horizontal-flip', 'vertical-flip', '180-rotation','salt-pepper']
-        print(77*"#")
-        print(f"Processing image #{i}\n")
-        try:
-            LOAD_PATH=os.path.join(read_path,img_name,img_name+'.tif')
-            print(f"Loading image from {LOAD_PATH}")
-            image = load_image_safe(LOAD_PATH, verbose=True)
-        except:
-            LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
-            print(f"Loading image from {LOAD_PATH}")
-            image = load_image_safe(LOAD_PATH)
-        #LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
-        #print(f"Loading image from {LOAD_PATH}")
-        #img = load_img(LOAD_PATH)
-        #img_array=img_to_array(img)
-        #image = np.uint8(img_to_array(load_img(LOAD_PATH)))
-        max_height, max_width = image.shape[:2]
-        idx, lab, x, y, w, h = parse_region_data(os.path.join(read_path,img_name,'region_data_'+img_name+'.csv')) #'region_data_7826001.csv'
-        #Augment, change to np arrays for easy matrix manipulation
-        x = np.array(x, dtype='int32')
-        w = np.array(w, dtype='int32')
-        y = np.array(y, dtype='int32')
-        h = np.array(h, dtype='int32')
-        #Fix bad coordinates
-        x[x<0]=0
-        y[y<0]=0
-        x[x+w>max_width]=max_width
-        y[y+h>max_height]=max_height
-        #augmentations = ['horizontal-flip', 'vertical-flip', '180-rotation','salt-pepper','translate-up','translate-down','translate-right','translate-left']
-        for augName in augmentations:
-          #Create folders for the augmented images
-          SAVE_PATH=os.path.join(read_path,img_name+'-'+augName)#/imgs/train/7826001-horizontal-flip/
-          print(f"Saving folder: {SAVE_PATH}")
-          if os.path.exists(SAVE_PATH):
-              print("Saving folder found")
-              if not rewrite:
-                  print("Not rewriting that")
-                  continue
-          if not os.path.exists(SAVE_PATH):
-              print(f"{SAVE_PATH} doesn't exist, creating it")
-              os.makedirs(SAVE_PATH)
-          aug_image, aug_x, aug_y, aug_w, aug_h = augment(image, x, y, w, h, augName)
-          #Save image and write csv
-          save_img(os.path.join(SAVE_PATH,img_name+'-'+augName+'.png'), aug_image)
-          write_region_data(os.path.join(SAVE_PATH,'region_data_'+img_name+'-'+augName+'.csv'), idx, lab, aug_x, aug_y, aug_w, aug_h, max_height, max_width)
 
-def expand_images_crops(crop_size, step_size, read_path, write_path, rewrite=True):
-  """
-  expand_images: Sequentially crop images and save the cropped images as well as their csvs
-  Inputs:
-    crop_size: [H,W] size of the cropping regions
-    step_size: [Y,X] step size for moving the cropping regions
-    read_path: path to read images from, should be structured as /read_path/image_name/image_name.png
-    write_path: path to write the cropped images to
-    rewrite: wether to rewrite files if they already exist
-  Outputs:
-    None, saves augmented images to folders /write_path/image_name-crops##/image_name-crops##.png
-  """
-  image_ids=next(os.walk(read_path))[1]#All directory names in read_path stored in an array
-  print(image_ids)
-  #Load every image
-  print(f"Number of images to process: {len(image_ids)}")
-  for i,img_name in enumerate(image_ids):
-    print(77*"#")
-    print(f"Processing image #{i}\n")
+def _image_ids(read_path, excluded_terms=()):
+    root = Path(read_path)
+    if not root.is_dir():
+        raise FileNotFoundError(f'dataset directory does not exist: {root}')
+    return sorted(
+        path.name for path in root.iterdir()
+        if path.is_dir()
+        and not any(term in path.name for term in excluded_terms))
+
+def _source_paths(read_path, image_id):
+    image_dir = Path(read_path) / image_id
+    candidates = [
+        image_dir / f'{image_id}{extension}'
+        for extension in ('.tif', '.tiff', '.png')]
+    image_path = next((path for path in candidates if path.is_file()), None)
+    if image_path is None:
+        raise FileNotFoundError(
+            f'no .tif, .tiff, or .png image found for {image_id}')
+    csv_path = image_dir / f'region_data_{image_id}.csv'
+    if not csv_path.is_file():
+        raise FileNotFoundError(csv_path)
+    return image_path, csv_path
+
+def _load_annotations(csv_path):
+    values = parse_region_data(csv_path)
+    return (
+        np.asarray(values[0]), np.asarray(values[1]),
+        *(np.asarray(value, dtype=np.int32) for value in values[2:]))
+
+def _save_dataset_item(output_root, item_id, image, annotations, rewrite):
+    output_dir = Path(output_root) / item_id
+    image_path = output_dir / f'{item_id}.png'
+    csv_path = output_dir / f'region_data_{item_id}.csv'
+    if output_dir.exists() and not rewrite:
+        return False
+    output_dir.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.asarray(image, dtype=np.uint8)).save(image_path)
+    idx, lab, x, y, w, h = annotations
+    write_region_data(
+        csv_path, idx, lab, x, y, w, h,
+        image.shape[0], image.shape[1], image_filename=image_path.name)
+    return True
+
+def expand_images(
+        read_path, rewrite=True, augmentations=DEFAULT_AUGMENTATIONS,
+        seed=None):
+    """Apply selected augmentations to every non-augmented dataset item."""
+    augmentations = tuple(augmentations)
+    unsupported = set(augmentations) - set(SUPPORTED_AUGMENTATIONS)
+    if unsupported:
+        raise ValueError(f'unsupported augmentations: {sorted(unsupported)}')
+    image_ids = _image_ids(read_path, SUPPORTED_AUGMENTATIONS)
+    generator = np.random.default_rng(seed)
+    saved = 0
+    for image_id in image_ids:
+        image_path, csv_path = _source_paths(read_path, image_id)
+        image = load_image_safe(image_path)
+        idx, lab, x, y, w, h = _load_annotations(csv_path)
+        for augmentation_name in augmentations:
+            transformed = augment(
+                image, x, y, w, h, augmentation_name, rng=generator)
+            item_id = f'{image_id}-{augmentation_name}'
+            if _save_dataset_item(
+                    read_path, item_id, transformed[0],
+                    (idx, lab, *transformed[1:]), rewrite):
+                saved += 1
+    print(f'Saved {saved} augmented dataset items to {read_path}')
+    return saved
+
+def expand_images_crops(
+        crop_size, step_size, read_path, write_path, rewrite=True):
+    """Crop each dataset image and save crops containing retained boxes."""
+    saved = 0
+    for image_id in _image_ids(read_path):
+        image_path, csv_path = _source_paths(read_path, image_id)
+        image = load_image_safe(image_path)
+        annotations = _load_annotations(csv_path)
+        crops = multicrop_image(
+            image, crop_size, step_size, *annotations)
+        for crop_number, values in enumerate(zip(*crops)):
+            cropped_image, idx, lab, x, y, w, h = values
+            item_id = f'{image_id}-crop{crop_number}'
+            if _save_dataset_item(
+                    write_path, item_id, cropped_image,
+                    (idx, lab, x, y, w, h), rewrite):
+                saved += 1
+    print(f'Saved {saved} cropped dataset items to {write_path}')
+    return saved
+
+def _pair(value):
     try:
-      LOAD_PATH=os.path.join(read_path,img_name,img_name+'.tif')
-      print(f"Loading image from {LOAD_PATH}")
-      image = load_image_safe(LOAD_PATH, verbose=True)
-    except:
-      LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
-      print(f"Loading image from {LOAD_PATH}")
-      image = load_image_safe(LOAD_PATH)
-    #LOAD_PATH=os.path.join(read_path,img_name,img_name+'.png')
-    #LOAD_PATH=os.path.join(read_path,img_name,img_name+'.tif')
-    #print(f"Loading image from {LOAD_PATH}")
-    #img = load_img(LOAD_PATH)
-    #img_array=img_to_array(img)
-    #image = np.uint8(img_to_array(load_img(LOAD_PATH)))
-    max_height, max_width = image.shape[:2]
-    idx, lab, x, y, w, h = parse_region_data(os.path.join(read_path,img_name,'region_data_'+img_name+'.csv')) #'region_data_7826001.csv'
-    #Augment, change to np arrays for easy matrix manipulation
-    idx = np.array(idx, dtype='int32')
-    lab = np.array(lab)
-    x = np.array(x, dtype='int32')
-    w = np.array(w, dtype='int32')
-    y = np.array(y, dtype='int32')
-    h = np.array(h, dtype='int32')
-    #Fix bad coordinates
-    x[x<0]=0
-    y[y<0]=0
-    x[x+w>max_width]=max_width
-    y[y+h>max_height]=max_height
-    crop_imgs, idxs, labs, xs, ys, ws, hs = multicrop_image(image, crop_size, step_size, idx, lab, x, y, w, h)
-    for j in range(len(crop_imgs)):
-      SAVE_PATH=os.path.join(write_path,img_name+'-crop'+str(j))#/imgs/train/7826001-horizontal-flip/
-      print(f"Saving folder: {SAVE_PATH}")
-      if os.path.exists(SAVE_PATH):
-        print("Saving folder found")
-        if not rewrite:
-          print("Not rewriting that")
-          continue
-      if not os.path.exists(SAVE_PATH):
-        print(f"{SAVE_PATH} doesn't exist, creating it")
-        os.makedirs(SAVE_PATH)
-      #Save image and write csv
-      save_img(os.path.join(SAVE_PATH,img_name+'-crop'+str(j)+'.png'), crop_imgs[j])
-      write_region_data(os.path.join(SAVE_PATH,'region_data_'+img_name+'-crop'+str(j)+'.csv'), idxs[j], labs[j], xs[j], ys[j], ws[j], hs[j], crop_size[0], crop_size[1])
+        first, second = (int(item) for item in value.split(','))
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError(
+            'expected two integers formatted as HEIGHT,WIDTH') from error
+    if first <= 0 or second <= 0:
+        raise argparse.ArgumentTypeError('dimensions must be positive')
+    return first, second
+
+def build_argument_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--mode', choices=('all', 'crop', 'augment'), default='all',
+        help='operation to run (default: %(default)s)')
+    parser.add_argument(
+        '--dataset-root', type=Path, default=Path('rcnn_dataset_full'),
+        help='root containing train/ and val/ (default: %(default)s)')
+    parser.add_argument(
+        '--output-root', type=Path, default=Path('rcnn_dataset_augmented'),
+        help='root for cropped train/ and val/ (default: %(default)s)')
+    parser.add_argument(
+        '--crop-size', type=_pair, default=(1024, 1024), metavar='H,W')
+    parser.add_argument(
+        '--step-size', type=_pair, default=(500, 500), metavar='Y,X')
+    parser.add_argument(
+        '--augmentations', nargs='+', choices=SUPPORTED_AUGMENTATIONS,
+        default=list(DEFAULT_AUGMENTATIONS))
+    parser.add_argument('--seed', type=int, default=0, help='noise RNG seed')
+    parser.add_argument(
+        '--rewrite', action=argparse.BooleanOptionalAction, default=True,
+        help='replace existing output files')
+    return parser
+
+def main(argv=None):
+    args = build_argument_parser().parse_args(argv)
+    train_input = args.dataset_root / 'train'
+    val_input = args.dataset_root / 'val'
+    train_output = args.output_root / 'train'
+    val_output = args.output_root / 'val'
+    if args.mode in ('all', 'crop'):
+        expand_images_crops(
+            args.crop_size, args.step_size,
+            train_input, train_output, args.rewrite)
+        expand_images_crops(
+            args.crop_size, args.step_size,
+            val_input, val_output, args.rewrite)
+    if args.mode in ('all', 'augment'):
+        expand_images(
+            train_output, args.rewrite, args.augmentations, seed=args.seed)
+
 
 if __name__ == '__main__':
-    # Paths to search for dataset images
-    TRAIN_PATH='./rcnn_dataset_full/train'
-    VAL_PATH='./rcnn_dataset_full/val'
-
-    #First crop the images into overlapping regions
-    crop_size = (1024, 1024)
-    step_size = (500,500)
-    expand_images_crops(crop_size, step_size, TRAIN_PATH, './rcnn_dataset_augmented/train', rewrite= False)
-    expand_images_crops(crop_size, step_size, VAL_PATH, './rcnn_dataset_augmented/val', rewrite = True)
-    # And further expand the training dataset by rotating and adding gaussian noise
-    expand_images('./rcnn_dataset_augmented/train', rewrite= True)
-    # expand_images(VAL_PATH, rewrite = False)
+    main()

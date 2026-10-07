@@ -116,6 +116,18 @@ python3 augment-images.py
 
 to augment the dataset into ~10k overlapping cropped images (this might take ~1 hour depending on your hardware so feel free to go for a cup of coffee and listen to your favourite music while you wait). After augmentation the dataset should be 19GB in size.
 
+The script also supports configurable paths, crop sizes, augmentation choices,
+and reproducible Gaussian noise. For example, a crop-only validation run is:
+
+```
+python3 augment-images.py --mode crop \
+  --dataset-root rcnn_dataset_full \
+  --output-root rcnn_dataset_augmented \
+  --crop-size 1024,1024 --step-size 500,500 --no-rewrite
+```
+
+Run `python3 augment-images.py --help` for the complete command-line options.
+
 ## Running Training Procedures
 
 Faster RCNN using a TEMNet backbone (as well as other backbones) can be trained using the training script in the **/scripts/rcnn/** directory as
