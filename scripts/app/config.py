@@ -50,7 +50,8 @@ class Config(object):
     WEIGHT_SET_DICT = {
         'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
         'resnet101': WEIGHT_PATH + '/rcnn_resnet101_weights_res512.hdf5',
-        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_full_res512.hdf5'
+        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_full_res512.hdf5',
+        'inception_resnetv2': WEIGHT_PATH + '/rcnn_inception_resnetv2_weights_res512.hdf5'
     }
     # General hyperparams
     #Name of the configuration, this can be overridden in Config instances
@@ -68,7 +69,7 @@ class Config(object):
     EPOCHS = 100
 
     #Backbone convolutional network to use
-    #Impleneted architectures: temnet, resnet50, resnet101, resnet152, resnet50v2, resnet101v2, resnet152v2, vgg.
+    #Impleneted architectures: temnet, resnet50, resnet101, resnet152, resnet50v2, resnet101v2, resnet152v2, vgg, inception_resnetv2.
     BACKBONE = "temnet"
 
     #Strides for the feature map shapes (this is used to calculate the cnn shapes in cnn_input_shapes and to generate anchors in generate_anchors)
@@ -207,7 +208,7 @@ class Config(object):
         # assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
         # assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
-        assert backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\''
+        assert backbone in ['temnet', 'resnet101', 'resnet101v2', 'inception_resnetv2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\', \'resnet101v2\' or \'inception_resnetv2\''
         self.BACKBONE = backbone
         self.WEIGHT_SET = self.WEIGHT_SET_DICT[self.BACKBONE]
         if(self.BACKBONE == 'temnet'):
@@ -615,7 +616,7 @@ class Image(Sequence):
 #Test config implementation
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
+    parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\', \'resnet101v2\' or \'inception_resnetv2\', mind weights are different for each model", default='temnet')
     args = parser.parse_args()
     config = Config(backbone=args.backbone)
     config.display()

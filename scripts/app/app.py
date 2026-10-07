@@ -9,7 +9,7 @@ import tensorflow as tf
 from config import Config
 import predict as P
 
-IMG_FORMAT = ('.tif','.png','.jpg','.jpeg','.bpm','.eps')
+IMG_FORMAT = ('.tif','.png','.jpg','.jpeg','.bmp','.eps')
 
 DATA =[
     'single',
@@ -18,7 +18,8 @@ DATA =[
 BACKBONES = [
 "temnet",
 "resnet101",
-"resnet101v2"
+"resnet101v2",
+"inception_resnetv2"
 ] #etc
 
 DEFAULT_FONT = ("shanti", 10, "bold")

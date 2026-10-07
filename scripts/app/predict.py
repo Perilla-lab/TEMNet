@@ -625,7 +625,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("-d", "--data", help="\'single\', \'multiple\' or \'test dataset\' image prediction", default='multiple')
   parser.add_argument("-p", "--path", help="Path to the image to predict or directory containing images for multiple image prediction", default='')
-  parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
+  parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\', \'resnet101v2\' or \'inception_resnetv2\', mind weights are different for each model", default='temnet')
   parser.add_argument("-m", "--magnification", help="Magnification of the input image for prediction", default=30000, type=int)
   parser.add_argument("-w", "--weights", help="Optional weights file override", default=None)
   args = parser.parse_args()
