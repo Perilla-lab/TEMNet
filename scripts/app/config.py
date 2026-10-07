@@ -52,7 +52,7 @@ class Config(object):
         'temnet': WEIGHT_PATH + '/rcnn_novel_weights.06_aug_gn_fpn2620_res512_wt_full.hdf5',
         # 'temnet': WEIGHT_PATH + '/rcnn_novel_weights.40_aug_gn_fpn2620_res512_full.hdf5',
         'resnet101': WEIGHT_PATH + '/rcnn_resnet101_weights_res512.hdf5',
-        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_res512.hdf5'
+        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_full_res512.hdf5'
     }
     # General hyperparams
     #Name of the configuration, this can be overridden in Config instances

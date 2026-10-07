@@ -937,6 +937,8 @@ class RCNN(object):
             else:
                 C5 = None
         elif architecture == "inception_resnetv2":
+            unnamed_layer_index = 1
+
             def conv2d_bn(x,
                         filters,
                         kernel_size,
@@ -961,20 +963,29 @@ class RCNN(object):
                 Returns:
                 Output tensor after applying `Conv2D` and `BatchNormalization`.
                 """
+                nonlocal unnamed_layer_index
+                if name is None:
+                    layer_index = unnamed_layer_index
+                    unnamed_layer_index += 1
+                    conv_name = f"conv2d_{layer_index}"
+                    bn_name = f"batch_normalization_{layer_index}"
+                    ac_name = None
+                else:
+                    conv_name = name
+                    bn_name = name + "_bn"
+                    ac_name = name + "_ac"
                 x = KL.Conv2D(
                     filters,
                     kernel_size,
                     strides=strides,
                     padding=padding,
                     use_bias=use_bias,
-                    name=name)(
+                    name=conv_name)(
                         x)
                 if not use_bias:
                     bn_axis = 1 if backend.image_data_format() == 'channels_first' else 3
-                    bn_name = None if name is None else name + '_bn'
                     x = KL.BatchNormalization(axis=bn_axis, scale=False, name=bn_name)(x, training=train_bn)
                 if activation is not None:
-                    ac_name = None if name is None else name + '_ac'
                     x = KL.Activation(activation, name=ac_name)(x)
                 return x
 
@@ -1084,7 +1095,7 @@ class RCNN(object):
                     img_input = input_tensor
 
             align_feature_maps = True
-            padding = 'SAME' if align_feature_maps else 'valid'
+            padding = 'same' if align_feature_maps else 'valid'
 
             #Stage 1
             # Stem block: 35 x 35 x 192
@@ -1110,7 +1121,7 @@ class RCNN(object):
             branch_2 = conv2d_bn(x, 64, 1)
             branch_2 = conv2d_bn(branch_2, 96, 3)
             branch_2 = conv2d_bn(branch_2, 96, 3)
-            branch_pool = KL.AveragePooling2D(3, strides=1, padding='SAME')(x)
+            branch_pool = KL.AveragePooling2D(3, strides=1, padding='same')(x)
             branch_pool = conv2d_bn(branch_pool, 64, 1)
             branches = [branch_0, branch_1, branch_2, branch_pool]
             channel_axis = 1 if backend.image_data_format() == 'channels_first' else 3

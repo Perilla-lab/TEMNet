@@ -50,7 +50,7 @@ class Config(object):
     WEIGHT_SET_DICT = {
         'temnet': WEIGHT_PATH + '/rcnn_temnet_weights_gn_res512.hdf5',
         'resnet101': WEIGHT_PATH + '/rcnn_resnet101_weights_res512.hdf5',
-        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_res512.hdf5',
+        'resnet101v2': WEIGHT_PATH + '/rcnn_resnet101v2_weights_full_res512.hdf5',
         'inception_resnetv2': WEIGHT_PATH+'/rcnn_inception_resnetv2_weights_res512.hdf5'
     }
     # General hyperparams
@@ -212,7 +212,10 @@ class Config(object):
         assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
         assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
-        assert backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\''
+        assert backbone in self.WEIGHT_SET_DICT, (
+            f"Backbone not implemented: {backbone}. Options are "
+            + ", ".join(self.WEIGHT_SET_DICT)
+        )
         self.BACKBONE = backbone
         self.WEIGHT_SET = self.WEIGHT_SET_DICT[self.BACKBONE]
         if(self.BACKBONE == 'temnet'):

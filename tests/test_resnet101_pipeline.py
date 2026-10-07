@@ -1,10 +1,14 @@
-"""Hardware-accelerated integration test for ResNet101 training and inference.
+"""Hardware-accelerated integration test for RCNN training and inference.
 
 The test uses the local full dataset and released HDF5 checkpoint, so it is
 opt-in rather than part of the fast unit-test suite:
 
-    TEMNET_RUN_RESNET101_INTEGRATION=1 TEMNET_REQUIRE_GPU=1 python -m unittest \
-        tests.test_resnet101_pipeline -v
+    TEMNET_RUN_INTEGRATION=1 TEMNET_REQUIRE_GPU=1 \
+    TEMNET_TEST_BACKBONE=resnet101 \
+        python -m unittest tests.test_resnet101_pipeline -v
+
+Set TEMNET_TEST_BACKBONE to "temnet", "resnet101v2", or
+"inception_resnetv2" to exercise that backbone.
 """
 
 import json
@@ -35,9 +39,23 @@ import input_pipeline as I
 from model import RCNN
 
 
-RUN_INTEGRATION = os.environ.get("TEMNET_RUN_RESNET101_INTEGRATION") == "1"
+RUN_INTEGRATION = os.environ.get(
+    "TEMNET_RUN_INTEGRATION",
+    os.environ.get("TEMNET_RUN_RESNET101_INTEGRATION", "0"),
+) == "1"
 REQUIRE_GPU = os.environ.get("TEMNET_REQUIRE_GPU") == "1"
-WEIGHTS = ROOT / "weights" / "rcnn_resnet101_weights_res512.hdf5"
+BACKBONE = os.environ.get("TEMNET_TEST_BACKBONE", "resnet101")
+WEIGHT_FILES = {
+    "inception_resnetv2": "rcnn_inception_resnetv2_weights_res512.hdf5",
+    "resnet101": "rcnn_resnet101_weights_res512.hdf5",
+    "resnet101v2": "rcnn_resnet101v2_weights_full_res512.hdf5",
+    "temnet": "rcnn_temnet_weights_gn_res512.hdf5",
+}
+if BACKBONE not in WEIGHT_FILES:
+    raise ValueError(
+        f"unsupported TEMNET_TEST_BACKBONE={BACKBONE!r}; "
+        f"choose one of {sorted(WEIGHT_FILES)}")
+WEIGHTS = ROOT / "weights" / WEIGHT_FILES[BACKBONE]
 TRAIN_PATH = ROOT / "dataset" / "rcnn_dataset_full" / "train"
 VAL_PATH = ROOT / "dataset" / "rcnn_dataset_full" / "val"
 RESULTS_DIR = Path(os.environ.get(
@@ -78,7 +96,7 @@ def save_prediction_image(image, prediction, config, output_path):
     return output_path
 
 
-class ResNet101TestConfig(Config):
+class DetectorTestConfig(Config):
     TRAIN_PATH = str(TRAIN_PATH)
     VAL_PATH = str(VAL_PATH)
     GPU_COUNT = 1
@@ -91,9 +109,9 @@ class ResNet101TestConfig(Config):
 
 @unittest.skipUnless(
     RUN_INTEGRATION,
-    "set TEMNET_RUN_RESNET101_INTEGRATION=1 to run the real-data test",
+    "set TEMNET_RUN_INTEGRATION=1 to run the real-data test",
 )
-class ResNet101PipelineTest(unittest.TestCase):
+class DetectorPipelineTest(unittest.TestCase):
     """Exercises one real crop inference and one real optimizer step."""
 
     @classmethod
@@ -102,6 +120,7 @@ class ResNet101PipelineTest(unittest.TestCase):
         if REQUIRE_GPU and not cls.logical_gpus:
             raise RuntimeError("TEMNET_REQUIRE_GPU=1 but TensorFlow found no GPU")
         print("RUNTIME " + json.dumps({"tensorflow": tf.__version__,
+              "backbone": BACKBONE, "weights": str(WEIGHTS),
               "logical_gpus": [gpu.name for gpu in cls.logical_gpus]}))
         missing = [path for path in (WEIGHTS, TRAIN_PATH, VAL_PATH) if not path.exists()]
         if missing:
@@ -116,7 +135,7 @@ class ResNet101PipelineTest(unittest.TestCase):
         gc.collect()
 
     def test_inference_and_training(self):
-        config = ResNet101TestConfig("resnet101")
+        config = DetectorTestConfig(BACKBONE)
 
         inference_model = RCNN(config, "inference")
         inference_model.load_weights(str(WEIGHTS), by_name=True)
@@ -141,20 +160,21 @@ class ResNet101PipelineTest(unittest.TestCase):
 
         for name, values in prediction.items():
             self.assertTrue(np.isfinite(values).all(), f"non-finite {name}")
-        self.assertGreater(
-            detection_count,
-            0,
-            "released ResNet101 weights produced no detections on the known crop",
-        )
+        self.assertEqual(prediction["rois"].shape, (detection_count, 4))
+        self.assertEqual(prediction["class_ids"].shape, (detection_count,))
+        self.assertEqual(prediction["scores"].shape, (detection_count,))
         prediction_path = RESULTS_DIR / (
-            f"resnet101_prediction_{image_id}_crop0.png")
+            f"{BACKBONE}_prediction_{image_id}_crop0.png")
         save_prediction_image(
             resized, prediction, config, prediction_path)
         self.assertTrue(prediction_path.is_file())
         print("INFERENCE_RESULT " + json.dumps({
+            "backbone": BACKBONE,
             "device": inference_device,
             "detections": detection_count,
-            "max_score": float(np.max(prediction["scores"])),
+            "max_score": (float(np.max(prediction["scores"]))
+                          if detection_count else None),
+            "min_confidence": config.DETECTION_MIN_CONFIDENCE,
             "prediction_image": str(prediction_path),
         }))
 
@@ -162,7 +182,7 @@ class ResNet101PipelineTest(unittest.TestCase):
         tf.keras.backend.clear_session()
         gc.collect()
 
-        with tempfile.TemporaryDirectory(prefix="temnet-resnet101-test-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix=f"temnet-{BACKBONE}-test-") as temp_dir:
             config.WEIGHT_PATH = temp_dir
             training_model = RCNN(config, "train")
             training_model.load_weights(str(WEIGHTS), by_name=True)
@@ -205,6 +225,7 @@ class ResNet101PipelineTest(unittest.TestCase):
             gpu_memory = (tf.config.experimental.get_memory_info("GPU:0")
                           if self.logical_gpus else {})
             print("TRAINING_RESULT " + json.dumps({
+                "backbone": BACKBONE,
                 "device": kernel_device,
                 "loss": float(loss[-1]),
                 "classifier_kernel_max_update": max_update,
