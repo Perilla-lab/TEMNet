@@ -1,7 +1,7 @@
 
 import os, argparse, csv
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '0,1,2,3')
 import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
@@ -136,7 +136,7 @@ def visualize(dataset, config, imgName = 'test'):
   imgName = I.build_image_names(images_meta)[0]
   print(f"Predicting on image: {imgName}")
   rcnn = RCNN(config, 'inference')
-  rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
+  rcnn.load_weights(config.WEIGHT_SET, by_name=True)
   # predictions = rcnn.predict_batch(np.expand_dims(images_gt,0), np.expand_dims(images_meta,0))
   predictions = rcnn.predict_batch(images_gt, images_meta)
   pred_0 = predictions[0]
@@ -412,7 +412,7 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn, save_f
     return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, pred_image
   else:
     one_boxes, one_class_ids, one_scores, oneimg = predict_one_image([img_path], config, save_fig)
-    return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores), np.array(one_img)
+    return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores), np.array(oneimg)
 
 def crop_image(image, crop_size, starting_point):
   """
@@ -641,6 +641,7 @@ if __name__ == '__main__':
   parser.add_argument("-d", "--data", help="\'single\', \'multiple\' or \'test dataset\' image prediction", default='multiple')
   parser.add_argument("-p", "--path", help="Path to the image to predict or directory containing images for multiple image prediction", default='')
   parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
+  parser.add_argument("-w", "--weights", help="Path to weights to use for prediction", default=None)
   parser.add_argument("-m", "--magnification", help="Magnification of the input image for prediction", default=30000, type=int)
   parser.add_argument("-g", "--gpu", help="ID of the GPU to use for inference", default='0')
   args = parser.parse_args()
@@ -653,11 +654,12 @@ if __name__ == '__main__':
       print("-m", "\t --magnification", "\t Magnification of the input image for prediction")
       print("-g", "\t --gpu", "\t ID of the GPU to use for inference")
   config = Config(backbone=args.backbone)
+  weights_path = args.weights or config.WEIGHT_SET
   print(f"Prediction mode: {args.data}")
   print(f"Predicting from: {args.path}")
   print(f"Magnification of input TEM micrographs: {args.magnification}")
   print(f"Model for prediction: {config.BACKBONE}")
-  print(f"Reading weights from: {config.WEIGHT_SET}")
+  print(f"Reading weights from: {weights_path}")
   magnification = args.magnification
   base_magnification = config.BASE_MAGNIFICATION
   base_crop_size = config.BASE_CROP_SIZE
@@ -669,7 +671,7 @@ if __name__ == '__main__':
   # Only load weights once
   n_gpu = args.gpu
   rcnn = RCNN(config, 'inference')
-  rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
+  rcnn.load_weights(weights_path, by_name=True)
   map_dict = dict(d.values() for d in config.CLASS_INFO)
   class_names = np.array(list(map_dict.values()))
 

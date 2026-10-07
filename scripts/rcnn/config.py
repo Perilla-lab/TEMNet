@@ -209,8 +209,6 @@ class Config(object):
         backbone: Backbone convolutional archiitecture to use for training and inference
         """
         #Verify that train and validation paths exist
-        assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
-        assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
         assert backbone in self.WEIGHT_SET_DICT, (
             f"Backbone not implemented: {backbone}. Options are "
@@ -265,6 +263,8 @@ class Dataset(Sequence):
         """
         super().__init__(**kwargs)
         self.path = path
+        if not os.path.isdir(self.path):
+            raise FileNotFoundError(f"Dataset directory does not exist: {self.path}")
         print("classes:Dataset: reading data from ", self.path)
         self.image_ids = next(os.walk(self.path))[1]#All the folders in self.path
         # print("classes:Dataset: image_ids ", self.image_ids)
