@@ -377,6 +377,14 @@ class DetectionTargetLayer(KL.Layer):
             lambda w, x, y: detection_targets(
                 w, x, y, self.config),
             self.config.BATCH_SIZE, names=names)
+        # Keras 3 doesn't use compute_output_shape() to refine symbolic shapes
+        # for this graph-style layer. Preserve the fixed ROI count.
+        outputs[0] = tf.ensure_shape(
+            outputs[0], [None, self.config.TRAIN_ROIS_PER_IMAGE, 4])
+        outputs[1] = tf.ensure_shape(
+            outputs[1], [None, self.config.TRAIN_ROIS_PER_IMAGE])
+        outputs[2] = tf.ensure_shape(
+            outputs[2], [None, self.config.TRAIN_ROIS_PER_IMAGE, 4])
         # print(f"DetectionTargetLayers: gt_class_ids: {outputs[1]}")
         # outputs are rois (y1,x1,y2,x2), target_class_ids (1-3) and target_deltas (dy,dx,log(dh),log(dw))
         return outputs
@@ -456,7 +464,8 @@ def refine_detections(rois, probs, deltas, config):
 
     # 2. Map over class IDs
     nms_keep = tf.map_fn(nms_keep_map, unique_pre_nms_class_ids,
-                         dtype=tf.int64)
+                         fn_output_signature=tf.TensorSpec(
+                             [config.DETECTION_MAX_INSTANCES], tf.int64))
     # 3. Merge results into one list, and remove -1 padding
     nms_keep = tf.reshape(nms_keep, [-1])
     nms_keep = tf.gather(nms_keep, tf.compat.v1.where(nms_keep > -1)[:, 0])
@@ -673,6 +682,8 @@ class RCNN(object):
         
         # Build the model
         self.keras_model = self.build_entire_model(mode)
+        # ROIAlign uses CropAndResize, which has no XLA GPU kernel.
+        self.keras_model.jit_compile = False
         self.keras_model.metrics_tensors = []
         # print(self.keras_model.summary())
 
@@ -1009,7 +1020,7 @@ class RCNN(object):
         _, C2, C3, C4, C5 = self.build_backbone(input_tensor, self.config.BACKBONE, stage5=True,
                                                 train_bn=self.config.TRAIN_BATCH_NORMALIZATION)
 
-        if C5 != None:
+        if C5 is not None:
             # Top-down Layers
             P5 = KL.Conv2D(self.config.TOP_DOWN_PYRAMID_SIZE, (1, 1), name='fpn_c5p5')(C5)
             P4 = KL.Add(name="fpn_p4add")([
@@ -1223,7 +1234,7 @@ class RCNN(object):
 
         # RPN feature maps
         P2, P3, P4, P5, P6 = self.build_feature_maps(input_image)
-        if P5 != None:
+        if P5 is not None:
             rpn_feature_maps = [P2, P3, P4, P5, P6]
             #RCNN feature maps don't use the last layer (P6) of the RPN
             rcnn_feature_maps = [P2, P3, P4, P5]
@@ -1436,7 +1447,7 @@ class RCNN(object):
         # The loss layers register their own symbolic losses for Keras 3.
         # Weight decay is supplied through the optimizer, avoiding the removed
         # Functional-model `add_loss()` path.
-        self.keras_model.compile(optimizer=optimizer, loss=[None] * len(self.keras_model.outputs))
+        self.keras_model.compile(optimizer=optimizer, loss=[None] * len(self.keras_model.outputs), jit_compile=False)
 
     def train(self, dataset):
         """
@@ -1479,7 +1490,11 @@ class RCNN(object):
         """Load weights using Keras' supported public API."""
         if exclude:
             by_name = True
-        return self.keras_model.load_weights(filepath, by_name=by_name, skip_mismatch=bool(exclude))
+        kwargs = {"skip_mismatch": bool(exclude)}
+        # Keras 3 supports by-name loading only for legacy .h5/.hdf5 files.
+        if not filepath.endswith(".weights.h5"):
+            kwargs["by_name"] = by_name
+        return self.keras_model.load_weights(filepath, **kwargs)
 
     def get_imagenet_weights(self):
         """Downloads ImageNet trained weights from Keras.

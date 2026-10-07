@@ -212,7 +212,7 @@ class Config(object):
         assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
         assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
-        assert(backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
+        assert backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\''
         self.BACKBONE = backbone
         self.WEIGHT_SET = self.WEIGHT_SET_DICT[self.BACKBONE]
         if(self.BACKBONE == 'temnet'):
@@ -254,12 +254,13 @@ Returns:
         Empty list on usual training,
 """
 class Dataset(Sequence):
-    def __init__(self, path, config, mode):
+    def __init__(self, path, config, mode, **kwargs):
         """
         path: to read images from
         config: Config class instance for training parameters
         mode: "train" or "validation"
         """
+        super().__init__(**kwargs)
         self.path = path
         print("classes:Dataset: reading data from ", self.path)
         self.image_ids = next(os.walk(self.path))[1]#All the folders in self.path
@@ -397,7 +398,9 @@ class Dataset(Sequence):
                     [batch_rcnn_class_ids, batch_rcnn_bbox])
 
         # print(f"# FINAL INPUT/OUTPUT LENGTH-> inputs: {len(inputs)}, outputs: {len(outputs)}")
-        return inputs, outputs
+        # tf.data requires nested tuples rather than lists in output signatures.
+        # Preserve the (inputs, targets) interface, including empty targets.
+        return tuple(inputs), tuple(outputs)
 
 
     def load_image(self, _id):
@@ -462,9 +465,9 @@ class Dataset(Sequence):
         """
 
         # print("classes:Dataset: preprocessing image")
-	# Standardize image according to training set mean and std
-        return (image.astype(np.float32) - self.config.MEAN_PIXEL ) / self.config.STD_PIXEL
-        #return image.astype(np.float32)# - self.config.MEAN_PIXEL 
+        # Released checkpoints were trained on raw 0-255 pixels. Keep this
+        # consistent with inference and the GUI preprocessing.
+        return image.astype(np.float32)
     # In the original mask-rpn code the masks were black and white images so this was necessary to erase outliers and make sure the maks pixels were truth to bounding boxes.-JR
 
     def augment(self, img, bboxes_coords, config):

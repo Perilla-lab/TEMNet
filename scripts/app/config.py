@@ -2,7 +2,7 @@
 PerillaNet RCNN
 Base Configuration, Dataset and utility classes
 
-Developed by Hagan Beatson, Alex Brier and Juan Rey @ Perillalab University of Delaware (2020)
+Developed by Hagan Beatson, Alex Bryer and Juan Rey @ Perillalab University of Delaware (2020)
 """
 
 import cv2, copy, os, argparse
@@ -209,7 +209,7 @@ class Config(object):
         # assert os.path.exists(self.TRAIN_PATH), "Train path cannot be verified"
         # assert os.path.exists(self.VAL_PATH), "Validation path cannot be verified"
         #Tune specific network parameters depending on the backbone
-        assert(backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\'')
+        assert backbone in ['temnet', 'resnet101', 'resnet101v2'], 'Backbone not implemented, options are \'temnet\', \'resnet101\' or \'resnet101v2\''
         self.BACKBONE = backbone
         self.WEIGHT_SET = self.WEIGHT_SET_DICT[self.BACKBONE]
         if(self.BACKBONE == 'temnet'):
@@ -251,12 +251,13 @@ Returns:
         Empty list on usual training,
 """
 class Dataset(Sequence):
-    def __init__(self, path, config, mode):
+    def __init__(self, path, config, mode, **kwargs):
         """
         path: to read images from
         config: Config class instance for training parameters
         mode: "train" or "validation"
         """
+        super().__init__(**kwargs)
         self.path = path
         print("classes:Dataset: reading data from ", self.path)
         self.image_ids = next(os.walk(self.path))[1]#All the folders in self.path
@@ -394,7 +395,9 @@ class Dataset(Sequence):
                     [batch_rcnn_class_ids, batch_rcnn_bbox])
 
         # print(f"# FINAL INPUT/OUTPUT LENGTH-> inputs: {len(inputs)}, outputs: {len(outputs)}")
-        return inputs, outputs
+        # tf.data requires nested tuples rather than lists in output signatures.
+        # Preserve the (inputs, targets) interface, including empty targets.
+        return tuple(inputs), tuple(outputs)
 
 
     def load_image(self, _id):
