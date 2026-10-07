@@ -274,7 +274,7 @@ def predict(data='single', path='./assets/sample.png', backbone='temnet', magnif
     global PRED_IMG_NAMES
     global PRED_IMG_COUNTS
     config = Config(backbone=backbone)
-    rcnn_loaded = tf.keras.models.load_model(os.path.join(os.getcwd(),backbone))
+    rcnn_loaded = P.load_rcnn_model(config)
     rcnn_loaded.summary()
     #Reset pred image variables when generating a new prediction
     PRED_IMG_IX = 0
@@ -312,7 +312,7 @@ def predict(data='single', path='./assets/sample.png', backbone='temnet', magnif
                 file_ids = next(os.walk(os.path.join(IMAGES_PATH,dir_id)))[2]#All files in the directory
                 for img_name in file_ids:
                     if img_name.endswith(IMG_FORMAT):
-                        image_paths_train += [os.path.join(IMAGES_PATH, dir_name, img_name) for img_name in images_ids]
+                        image_paths_train.append(os.path.join(IMAGES_PATH, dir_id, img_name))
 
         #Predict for every image in the set
         for image_path in image_paths_train:

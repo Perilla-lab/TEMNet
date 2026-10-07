@@ -1,7 +1,7 @@
 
 import os, argparse, csv, datetime
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '0,1,2,3')
 import numpy as np
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import tensorflow as tf
@@ -16,7 +16,21 @@ import matplotlib.patches as patches
 
 print("TensorFlow Version ",tf.__version__)
 
-IMG_FORMAT = ('.tif','.png','.jpg','.jpeg','.bpm','.eps')
+IMG_FORMAT = ('.tif','.png','.jpg','.jpeg','.bmp','.eps')
+IMAGE_PATH = Config.IMAGE_PATH
+os.makedirs(IMAGE_PATH, exist_ok=True)
+
+
+def load_rcnn_model(config, weights_path=None):
+  """Build the inference graph and load a Keras 3-compatible checkpoint."""
+  weights_path = os.path.abspath(weights_path or config.WEIGHT_SET)
+  if not os.path.isfile(weights_path):
+    raise FileNotFoundError(f"Weights file does not exist: {weights_path}")
+  print(f"Reading weights from: {weights_path}")
+  rcnn = RCNN(config, 'inference')
+  rcnn.load_weights(weights_path, by_name=True)
+  return rcnn.keras_model
+
 
 
 def fig2data ( fig ):
@@ -30,7 +44,7 @@ def fig2data ( fig ):
 
     # Get the RGBA buffer from the figure
     w,h = fig.canvas.get_width_height()
-    buf = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
+    buf = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
     buf.shape = (w,h,4)
 
     # canvas.tostring_argb give pixmap in ARGB mode. Roll the ALPHA channel to have it in RGBA mode
@@ -223,7 +237,7 @@ def process_detections(detections, image_shape):
   boxes = np.around(np.multiply(boxes,scale)+shift).astype(np.int32)
   return boxes, class_ids, scores
 
-def visualize(dataset, config, imgName = 'test'):
+def visualize(dataset, config, keras_model=None, imgName = 'test'):
   """
   visualize: create graphs of predicted bounding boxes and classes for labeled data
   Inputs:
@@ -251,11 +265,10 @@ def visualize(dataset, config, imgName = 'test'):
   #imgName = str(int(images_meta[0][0]))
   imgName = I.build_image_names(images_meta)[0]
   print(f"Predicting on image: {imgName}")
-  # rcnn = RCNN(config, 'inference')
-  # rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
-  rcnn_loaded = tf.keras.models.load_model(os.path.join(os.getcwd(),config.BACKBONE))
+  if keras_model is None:
+    keras_model = load_rcnn_model(config)
   # predictions = rcnn.predict_batch(np.expand_dims(images_gt,0), np.expand_dims(images_meta,0))
-  predictions = predict_batch(images_gt, images_meta, config, rcnn_loaded)
+  predictions = predict_batch(images_gt, images_meta, config, keras_model)
   pred_0 = predictions[0]
   # print(f"visualize: images_gt[0].shape[0] : {images_gt[0].shape[0]}")
   pred_boxes = pred_0["rois"]
@@ -270,7 +283,7 @@ def visualize(dataset, config, imgName = 'test'):
   print(f"### mAP obtained for predictions on image {imgName} : {mAP}")
   #pred_boxes, pred_class_ids, pred_scores = predict_rcnn(config, imgName, image_gt, image_meta, anchors)
 
-def predict_all_rcnn(dataset, config):
+def predict_all_rcnn(dataset, config, keras_model=None):
   """
   predict_all_rcnn: create graphs of predicted bounding boxes and classes for all labeled data aswell as calculating the average mAP for the dataset
   Inputs:
@@ -278,9 +291,8 @@ def predict_all_rcnn(dataset, config):
   config, config object
   """
   mAPs = []
-  # rcnn = RCNN(config, 'inference')
-  # rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
-  rcnn_loaded = tf.keras.models.load_model(os.path.join(os.getcwd(),config.BACKBONE))
+  if keras_model is None:
+    keras_model = load_rcnn_model(config)
   for i in range(len(dataset)): #For every batch in the dataset
     inputs = dataset[i][0]
     images_gt = inputs[0]      # batch_img in __getitem__
@@ -295,7 +307,7 @@ def predict_all_rcnn(dataset, config):
     #print(f"predict_all_rcnn: gt_class_ids.shape {gt_class_ids.shape}")
     #print(f"predict_all_rcnn: images_meta[0] : {images_meta[0]}")
     imgNames = I.build_image_names(images_meta)
-    predictions = predict_batch(images_gt, images_meta, config, rcnn_loaded)
+    predictions = predict_batch(images_gt, images_meta, config, keras_model)
     for j, pred in enumerate(predictions): #For every prediction in the batch
       print(f"Predicting on image: {imgNames[j]} ...")
       pred_boxes = pred["rois"]
@@ -313,7 +325,7 @@ def predict_all_rcnn(dataset, config):
   print(f"### Average mAP for dataset: {avg_mAP}")
   return avg_mAP, mAPs
 
-def predict_one_image(img_paths, config, save_fig):
+def predict_one_image(img_paths, config, save_fig, keras_model=None):
   """
   predict_one_image: Predicts on a single image passed through a path
   Inputs:
@@ -327,9 +339,8 @@ def predict_one_image(img_paths, config, save_fig):
   #Since prediction only requires an array of images and an array of image_metadata we only build these.
   #This would be the equivalent of using a batch size of 1 and a dataset of 1 image, the difference is that we don't need ground truth to generate the predictions, this also means that since we're not comparing to any ground thruth we can't calculate mAP
   #Load image from path
-  # rcnn = RCNN(config, 'inference')
-  # rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
-  rcnn_loaded = tf.keras.models.load_model(os.path.join(os.getcwd(),config.BACKBONE))
+  if keras_model is None:
+    keras_model = load_rcnn_model(config)
 
   images = Image(img_paths, config)
   overall_class_ids = []
@@ -342,7 +353,7 @@ def predict_one_image(img_paths, config, save_fig):
     image_batch = inputs[0]
     image_batch_meta = inputs[1]
     imgNames = I.build_image_names(image_batch_meta)
-    predictions = predict_batch(image_batch, image_batch_meta, config, rcnn_loaded)
+    predictions = predict_batch(image_batch, image_batch_meta, config, keras_model)
     for j, pred in enumerate(predictions): #For every prediction in the batch
       print(f"Predicting on image: {imgNames[j]} ...")
       pred_boxes = pred["rois"]
@@ -452,25 +463,29 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn, save_f
           all_pred_boxes.append(pred_boxes[k])
           all_pred_class_ids.append(pred_class_ids[k])
           all_pred_scores.append(pred_scores[k])
-    all_pred_boxes = np.array(all_pred_boxes)
-    all_pred_class_ids = np.array(all_pred_class_ids)
-    all_pred_scores = np.array(all_pred_scores)
-    # print(f"all_pred_boxes before nms: {all_pred_boxes}")
-    nms_idx = I.nms3(all_pred_boxes, all_pred_scores, all_pred_class_ids, nms_treshold=0.25)
-    # print(f"nms_idx: \n {nms_idx}")
-    nms_pred_boxes = all_pred_boxes[nms_idx]
-    nms_pred_class_ids = all_pred_class_ids[nms_idx]
-    nms_pred_scores = all_pred_scores[nms_idx]
+    all_pred_boxes = np.asarray(all_pred_boxes, dtype=np.float32).reshape((-1, 4))
+    all_pred_class_ids = np.asarray(all_pred_class_ids, dtype=np.int32)
+    all_pred_scores = np.asarray(all_pred_scores, dtype=np.float32)
+    if len(all_pred_boxes):
+      nms_idx = I.nms3(all_pred_boxes, all_pred_scores,
+                       all_pred_class_ids, nms_treshold=0.25)
+      nms_pred_boxes = all_pred_boxes[nms_idx]
+      nms_pred_class_ids = all_pred_class_ids[nms_idx]
+      nms_pred_scores = all_pred_scores[nms_idx]
+    else:
+      nms_pred_boxes = all_pred_boxes
+      nms_pred_class_ids = all_pred_class_ids
+      nms_pred_scores = all_pred_scores
     print(f"### Finished Predicting on cropped images ###")
     print(f"Final number of detections: {len(all_pred_boxes)}")
     print(f"Final number of detections after nms: {len(nms_pred_boxes)}")
     # V.visualize_rcnn_predictions(source_image, all_pred_boxes, all_pred_class_ids, all_pred_scores, img_name)
-    pred_image = visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, img_name, save_fig)
+    pred_image = visualize_rcnn_predictions(source_image, nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, config.BACKBONE+'_'+img_name, save_fig)
     # counts_image = visualize_predictions_count(nms_pred_class_ids, nms_pred_scores, img_name, save_fig)
     #V.visualize_score_histograms(nms_pred_class_ids, nms_pred_scores, img_name)
     return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, pred_image #, counts_image
   else:
-    one_boxes, one_class_ids, one_scores, one_img = predict_one_image([img_path], config, save_img)
+    one_boxes, one_class_ids, one_scores, one_img = predict_one_image([img_path], config, save_fig, rcnn)
     return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores), np.array(one_img) #, np.array(count_img)
 
 def crop_image(image, crop_size, starting_point):
@@ -528,7 +543,7 @@ def multicrop_input_image(image, crop_size, crop_step):
   print(f"### Number of images generated: {len(crop_imgs)}")
   return crop_imgs, crop_shifts
 
-def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config):
+def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config, rcnn):
   """
   predict_all_uncropped:
   """
@@ -548,7 +563,7 @@ def predict_all_uncropped(img_paths, csv_paths, crop_size, crop_step, config):
     gt_boxes = np.array(gt_boxes).astype('int32')
     gt_class_ids=I.change_label_to_num(gt_labs, config.CLASS_INFO)
     #Now predict
-    pred_boxes, pred_class_ids, pred_scores, _ = predict_uncropped_image(img_path, crop_size, crop_step, config)
+    pred_boxes, pred_class_ids, pred_scores, _ = predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn)
     #And calculate the mAP between gt and pred
     if len(pred_boxes) != 0:
       mAP, _, _, _, fp_count = I.compute_mAP(gt_boxes, gt_class_ids, pred_boxes, pred_class_ids, pred_scores)
@@ -612,20 +627,16 @@ if __name__ == '__main__':
   parser.add_argument("-p", "--path", help="Path to the image to predict or directory containing images for multiple image prediction", default='')
   parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
   parser.add_argument("-m", "--magnification", help="Magnification of the input image for prediction", default=30000, type=int)
+  parser.add_argument("-w", "--weights", help="Optional weights file override", default=None)
   args = parser.parse_args()
-  if(args.path == ''):
-      print('\n Please provide a valid path for image prediction.')
-      print('Options:\n')
-      print("-d", "\t --data", "\t \'single\' or \'multiple\' image prediction")
-      print("-p", "\t --path", "\t Path to the image to predict or directory containing images for multiple image prediction")
-      print("-b", "\t --backbone", "\t Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model")
-      print("-m", "\t --magnification", "\t Magnification of the input image for prediction")
+  if args.path == '':
+      parser.error("Please provide an image or dataset path with --path")
   config = Config(backbone=args.backbone)
   print(f"Prediction mode: {args.data}")
   print(f"Predicting from: {args.path}")
   print(f"Magnification of input TEM micrographs: {args.magnification}")
   print(f"Model for prediction: {config.BACKBONE}")
-  print(f"Reading weights from: {config.WEIGHT_SET}")
+  weights_path = args.weights or config.WEIGHT_SET
   magnification = args.magnification
   base_magnification = config.BASE_MAGNIFICATION
   base_crop_size = config.BASE_CROP_SIZE
@@ -634,14 +645,13 @@ if __name__ == '__main__':
   new_crop_step = int(magnification * (base_crop_step/base_magnification) )
   crop_size = (new_crop_size, new_crop_size)
   crop_step = (new_crop_step, new_crop_step)
-  # Only load weights once
-  # rcnn = RCNN(config, 'inference')
-  # rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
+  # Build the graph and load weights only once.
+  rcnn = load_rcnn_model(config, weights_path)
 
   if(args.data == 'dataset_all'):
     datasets = {"train": Dataset(config.TRAIN_PATH, config, "train"), "validation": Dataset(config.VAL_PATH, config, "validation")}
-    avg_mAP_val, mAPs_val = predict_all_rcnn(datasets["validation"], config)
-    avg_mAP_train, mAPs_train = predict_all_rcnn(datasets["train"], config)
+    avg_mAP_val, mAPs_val = predict_all_rcnn(datasets["validation"], config, rcnn)
+    avg_mAP_train, mAPs_train = predict_all_rcnn(datasets["train"], config, rcnn)
     print("\n")
     print(77*"#")
     print(f"####### PREDICTIONS LOG #######")
@@ -654,7 +664,7 @@ if __name__ == '__main__':
     print(f"COMPLETE avg mAP: {np.mean(mAPs_train+mAPs_val)}")
   elif(args.data=='dataset_random'):
     dataset = Dataset(config.VAL_PATH, config, "validation")
-    visualize(dataset, config, args.data)
+    visualize(dataset, config, rcnn, args.data)
   elif(args.data == 'dataset_noaug'):
     #Build image paths
     # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
@@ -670,9 +680,9 @@ if __name__ == '__main__':
     csv_paths_val = [os.path.join(VAL_PATH, img_name, 'region_data_'+img_name+'.csv') for img_name in val_ids]
     #Sequentially predict on the uncropped images and store their class ids
     #Predict for both Train and Validation sets
-    avg_mAP_train, mAPs_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train, fp_counts_train = predict_all_uncropped(image_paths_train, csv_paths_train, crop_size, crop_step, config)
+    avg_mAP_train, mAPs_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train, fp_counts_train = predict_all_uncropped(image_paths_train, csv_paths_train, crop_size, crop_step, config, rcnn)
     write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, fp_counts_train)
-    avg_mAP_val, mAPs_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val, fp_counts_val = predict_all_uncropped(image_paths_val, csv_paths_val, crop_size, crop_step, config)
+    avg_mAP_val, mAPs_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val, fp_counts_val = predict_all_uncropped(image_paths_val, csv_paths_val, crop_size, crop_step, config, rcnn)
     #V.visualize_predictions_count(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
     #V.visualize_score_histograms(np.array(class_ids_val), np.array(scores_val), f'val_dataset_window_{crop_size[0]}')
     write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, fp_counts_val)
@@ -695,7 +705,7 @@ if __name__ == '__main__':
     IMAGES_PATH = args.path
     print(IMAGES_PATH)
     # Read images from train and validation:
-    images_ids = next(os.walk(IMAGES_PATH))[2]#All file names in IMAGES_PATH
+    images_ids = sorted(next(os.walk(IMAGES_PATH))[2])#All file names in IMAGES_PATH
     image_paths_train = [os.path.join(IMAGES_PATH, img_name) for img_name in images_ids if img_name.endswith(IMG_FORMAT)]
     if(len(image_paths_train)==0):#No images found? Search directory-wise, i.e. /path/07655/07655.png
       images_ids = next(os.walk(IMAGES_PATH))[1]#All folder names in IMAGES_PATH
@@ -720,10 +730,9 @@ if __name__ == '__main__':
   elif(args.data == 'test_saved_model'):
     import inspect
 
-    rcnn_loaded = tf.keras.models.load_model(os.path.join(os.getcwd(),args.backbone))
-    rcnn_loaded.summary()
-    inspect.getmembers(rcnn_loaded, predicate = inspect.isfunction)
+    rcnn.summary()
+    inspect.getmembers(rcnn, predicate = inspect.isfunction)
 
     imgName = args.path.split('/')[-1].split('.')[0]
     print(f"Predicting with crop size: {crop_size} and crop step {crop_step}")
-    _, pred_class_ids, pred_scores, _ = predict_uncropped_image(args.path, crop_size, crop_step, config, rcnn_loaded)
+    _, pred_class_ids, pred_scores, _ = predict_uncropped_image(args.path, crop_size, crop_step, config, rcnn)
