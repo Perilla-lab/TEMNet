@@ -146,7 +146,7 @@ Prediction requires trained weights for a given backbone. We have provided weigh
 cd ../../weights/
 bash download_weights.sh
 cd ../scripts/rcnn
-mkdir ../../graphs/rcnn
+mkdir -p ../../graphs/rcnn
 ```
 
 The predict.py script in **/scripts/rcnn/** handles prediction for individual images
