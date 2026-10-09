@@ -304,7 +304,7 @@ def crop_image(
         out=np.zeros_like(original_area), where=original_area > 0)
     keep = (
         (clipped_w > 0) & (clipped_h > 0)
-        & (retained_fraction >= iou_threshold))
+        & (retained_fraction > iou_threshold))
 
     cropped = image[
         start_y:start_y + crop_height,
@@ -321,17 +321,26 @@ def _crop_origins(length, crop_length, step):
         raise ValueError(
             f'crop dimension {crop_length} exceeds image dimension {length}')
     last = length - crop_length
-    return sorted(set(range(0, last + 1, step)) | {last})
+    # Preserve the legacy grid exactly: iterate ceil(length / step) times and
+    # clamp windows that cross the far edge back to the last valid origin.
+    # This deliberately retains repeated edge positions. For a 2620x4000
+    # image, 1024x1024 crops, and a 500x500 step, that is a 6x8 grid (48
+    # candidates), even though only 5x7=35 origins are spatially unique.
+    return [
+        min(index * step, last)
+        for index in range((length + step - 1) // step)
+    ]
 
 def multicrop_image(image, crop_size, crop_step, idx, lab, x, y, w, h):
-    """Create unique overlapping crops that contain retained annotations."""
+    """Create the legacy overlapping crop grid, omitting empty crops."""
     y_origins = _crop_origins(
         image.shape[0], int(crop_size[0]), int(crop_step[0]))
     x_origins = _crop_origins(
         image.shape[1], int(crop_size[1]), int(crop_step[1]))
     outputs = [[] for _ in range(7)]
-    for start_y in y_origins:
-        for start_x in x_origins:
+    # Match the original numbering: walk down Y for each X column.
+    for start_x in x_origins:
+        for start_y in y_origins:
             result = crop_image(
                 image, crop_size, (start_y, start_x),
                 idx, lab, x, y, w, h)
