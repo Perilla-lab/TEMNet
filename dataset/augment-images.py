@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 from pathlib import Path
+import tempfile
 
 import cv2
 import numpy as np
@@ -380,17 +381,39 @@ def _load_annotations(csv_path):
         *(np.asarray(value, dtype=np.int32) for value in values[2:]))
 
 def _save_dataset_item(output_root, item_id, image, annotations, rewrite):
+    idx, lab, x, y, w, h = annotations
+    if not len(idx):
+        return False
+
+    output_root = Path(output_root)
     output_dir = Path(output_root) / item_id
     image_path = output_dir / f'{item_id}.png'
     csv_path = output_dir / f'region_data_{item_id}.csv'
-    if output_dir.exists() and not rewrite:
-        return False
-    output_dir.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(np.asarray(image, dtype=np.uint8)).save(image_path)
-    idx, lab, x, y, w, h = annotations
-    write_region_data(
-        csv_path, idx, lab, x, y, w, h,
-        image.shape[0], image.shape[1], image_filename=image_path.name)
+    if image_path.is_file() and csv_path.is_file() and not rewrite:
+        try:
+            if len(parse_region_data(csv_path)[0]):
+                return False
+        except (OSError, ValueError):
+            pass
+
+    # Write both files in a temporary directory first. An interrupted run may
+    # leave one published file, but a later --no-rewrite run will repair that
+    # incomplete pair instead of treating the directory as finished.
+    output_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+            dir=output_root, prefix=f'.{item_id}-') as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        temporary_image = temporary_root / image_path.name
+        temporary_csv = temporary_root / csv_path.name
+        region_count = write_region_data(
+            temporary_csv, idx, lab, x, y, w, h,
+            image.shape[0], image.shape[1], image_filename=image_path.name)
+        if not region_count:
+            return False
+        Image.fromarray(np.asarray(image, dtype=np.uint8)).save(temporary_image)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        temporary_csv.replace(csv_path)
+        temporary_image.replace(image_path)
     return True
 
 def expand_images(
@@ -404,10 +427,20 @@ def expand_images(
     image_ids = _image_ids(read_path, SUPPORTED_AUGMENTATIONS)
     generator = np.random.default_rng(seed)
     saved = 0
+    skipped = 0
     for image_id in image_ids:
-        image_path, csv_path = _source_paths(read_path, image_id)
+        try:
+            image_path, csv_path = _source_paths(read_path, image_id)
+        except FileNotFoundError as error:
+            print(f'Skipping incomplete dataset item {image_id}: {error}')
+            skipped += 1
+            continue
         image = load_image_safe(image_path)
         idx, lab, x, y, w, h = _load_annotations(csv_path)
+        if not len(idx):
+            print(f'Skipping targetless dataset item {image_id}')
+            skipped += 1
+            continue
         for augmentation_name in augmentations:
             transformed = augment(
                 image, x, y, w, h, augmentation_name, rng=generator)
@@ -416,7 +449,9 @@ def expand_images(
                     read_path, item_id, transformed[0],
                     (idx, lab, *transformed[1:]), rewrite):
                 saved += 1
-    print(f'Saved {saved} augmented dataset items to {read_path}')
+    print(
+        f'Saved {saved} augmented dataset items to {read_path}; '
+        f'skipped {skipped} incomplete or targetless source items')
     return saved
 
 def expand_images_crops(

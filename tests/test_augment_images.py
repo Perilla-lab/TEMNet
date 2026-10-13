@@ -94,13 +94,28 @@ class AugmentImagesTest(unittest.TestCase):
         np.testing.assert_array_equal(result[3], [2])
         self.assertTrue(np.all(result[0][:, 5:] == 0))
 
-    def test_multicrop_has_unique_edges_and_in_bounds_boxes(self):
-        image = np.zeros((10, 10, 3), dtype=np.uint8)
+    def test_legacy_grid_is_six_by_eight_for_full_size_images(self):
+        y_origins = AUGMENT._crop_origins(2620, 1024, 500)
+        x_origins = AUGMENT._crop_origins(4000, 1024, 500)
+        self.assertEqual(y_origins, [0, 500, 1000, 1500, 1596, 1596])
+        self.assertEqual(
+            x_origins, [0, 500, 1000, 1500, 2000, 2500, 2976, 2976])
+        self.assertEqual(len(y_origins) * len(x_origins), 48)
+        self.assertEqual(len(set(y_origins)) * len(set(x_origins)), 35)
+
+    def test_multicrop_preserves_legacy_edge_repetitions(self):
+        coordinates = np.arange(100, dtype=np.uint8).reshape(10, 10)
+        image = np.repeat(coordinates[..., np.newaxis], 3, axis=-1)
         results = AUGMENT.multicrop_image(
             image, (6, 6), (4, 4),
             np.array(['0']), np.array(['mature']),
             np.array([4]), np.array([4]), np.array([2]), np.array([2]))
-        self.assertEqual(len(results[0]), 4)
+        # Origins [0, 4, 4] on both axes reproduce the old 3x3 iteration,
+        # including the repeated right and bottom edge windows.
+        self.assertEqual(len(results[0]), 9)
+        self.assertEqual(
+            [int(crop[0, 0, 0]) for crop in results[0]],
+            [0, 40, 40, 4, 44, 44, 4, 44, 44])
         for cropped, xs, ys, widths, heights in zip(
                 results[0], results[3], results[4], results[5], results[6]):
             self.assertEqual(cropped.shape, (6, 6, 3))
@@ -126,9 +141,61 @@ class AugmentImagesTest(unittest.TestCase):
                 root / 'output', augmentations=('horizontal-flip',), seed=3)
             generated = sorted(path.name for path in (root / 'output').iterdir())
 
-        self.assertEqual(crop_count, 4)
-        self.assertEqual(augmented_count, 4)
-        self.assertEqual(len(generated), 8)
+        self.assertEqual(crop_count, 9)
+        self.assertEqual(augmented_count, 9)
+        self.assertEqual(len(generated), 18)
+
+    def test_targetless_and_incomplete_items_are_not_augmented(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = np.full((8, 8, 3), 100, dtype=np.uint8)
+
+            complete = root / 'complete'
+            complete.mkdir()
+            Image.fromarray(image).save(complete / 'complete.png')
+            AUGMENT.write_region_data(
+                complete / 'region_data_complete.csv', ['0'], ['mature'],
+                [2], [2], [3], [3], 8, 8,
+                image_filename='complete.png')
+
+            incomplete = root / 'incomplete'
+            incomplete.mkdir()
+            Image.fromarray(image).save(incomplete / 'incomplete.png')
+
+            targetless = root / 'targetless'
+            targetless.mkdir()
+            Image.fromarray(image).save(targetless / 'targetless.png')
+            AUGMENT.write_region_data(
+                targetless / 'region_data_targetless.csv', [], [],
+                [], [], [], [], 8, 8, image_filename='targetless.png')
+
+            saved = AUGMENT.expand_images(
+                root, augmentations=('horizontal-flip',), seed=3)
+
+            self.assertEqual(saved, 1)
+            self.assertTrue((root / 'complete-horizontal-flip').is_dir())
+            self.assertFalse((root / 'incomplete-horizontal-flip').exists())
+            self.assertFalse((root / 'targetless-horizontal-flip').exists())
+
+    def test_no_rewrite_repairs_incomplete_item_and_empty_save_is_skipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = np.full((8, 8, 3), 100, dtype=np.uint8)
+            incomplete = root / 'repair'
+            incomplete.mkdir()
+            Image.fromarray(image).save(incomplete / 'repair.png')
+
+            repaired = AUGMENT._save_dataset_item(
+                root, 'repair', image,
+                (['0'], ['mature'], [2], [2], [3], [3]), rewrite=False)
+            empty_saved = AUGMENT._save_dataset_item(
+                root, 'empty', image,
+                ([], [], [], [], [], []), rewrite=False)
+
+            self.assertTrue(repaired)
+            self.assertTrue((incomplete / 'region_data_repair.csv').is_file())
+            self.assertFalse(empty_saved)
+            self.assertFalse((root / 'empty').exists())
 
 
 if __name__ == '__main__':

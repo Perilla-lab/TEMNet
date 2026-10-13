@@ -1,5 +1,6 @@
 
 import os, argparse, csv
+from pathlib import Path
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ.setdefault('CUDA_VISIBLE_DEVICES', '0,1,2,3')
 import numpy as np
@@ -106,6 +107,89 @@ def process_detections(detections, image_shape):
   shift = np.array([0,0,0,0])
   boxes = np.around(np.multiply(boxes,scale)+shift).astype(np.int32)
   return boxes, class_ids, scores
+
+
+class SavedModelRCNN:
+  """Keras 3-compatible inference adapter for an exported TensorFlow SavedModel."""
+
+  def __init__(self, saved_model_path, config):
+    self.saved_model_path = Path(saved_model_path).expanduser().resolve()
+    if not (self.saved_model_path / 'saved_model.pb').is_file():
+      raise FileNotFoundError(
+        f"No SavedModel found at {self.saved_model_path}. "
+        "Expected a directory containing saved_model.pb."
+      )
+
+    saved_model = tf.saved_model.load(str(self.saved_model_path))
+    try:
+      self.signature = saved_model.signatures['serving_default']
+    except KeyError as exc:
+      raise ValueError(
+        f"SavedModel at {self.saved_model_path} has no serving_default signature."
+      ) from exc
+
+    required_inputs = {'input_image', 'input_image_meta', 'input_anchors'}
+    signature_inputs = set(self.signature.structured_input_signature[1])
+    missing_inputs = required_inputs - signature_inputs
+    if missing_inputs:
+      raise ValueError(
+        "SavedModel serving_default signature is missing inputs: "
+        + ', '.join(sorted(missing_inputs))
+      )
+    if 'rcnn_detection' not in self.signature.structured_outputs:
+      raise ValueError(
+        "SavedModel serving_default signature has no rcnn_detection output."
+      )
+    self.config = config
+
+  def predict_batch(self, images, image_metas):
+    anchors = get_anchors(images[0].shape, self.config)
+    anchors = np.broadcast_to(anchors, (images.shape[0],) + anchors.shape)
+    outputs = self.signature(
+      input_image=tf.convert_to_tensor(images, dtype=tf.float32),
+      input_image_meta=tf.convert_to_tensor(image_metas, dtype=tf.float32),
+      input_anchors=tf.convert_to_tensor(anchors, dtype=tf.float32),
+    )
+    detections = np.asarray(outputs['rcnn_detection'])
+    results = []
+    for i, image in enumerate(images):
+      boxes, class_ids, scores = process_detections(detections[i], image.shape)
+      results.append({'rois': boxes, 'class_ids': class_ids, 'scores': scores})
+    return results
+
+
+def resolve_saved_model_path(config, backbone, explicit_path=None, weights_path=None):
+  """Return and validate the SavedModel directory used by test_saved_model."""
+  candidate = explicit_path
+  if candidate is None and weights_path and Path(weights_path).expanduser().is_dir():
+    candidate = weights_path
+  if candidate is None:
+    candidate = Path(config.WEIGHT_PATH) / backbone
+  path = Path(candidate).expanduser().resolve()
+  if not (path / 'saved_model.pb').is_file():
+    raise FileNotFoundError(
+      f"No SavedModel found at {path}. Use --saved-model with a directory "
+      "containing saved_model.pb."
+    )
+  return path
+
+
+def should_use_saved_model(data_mode, saved_model_path=None):
+  """Select SavedModel inference when requested or required by the mode."""
+  return data_mode == 'test_saved_model' or saved_model_path is not None
+
+
+def resolve_noaug_dataset_paths(config, train_path=None, val_path=None):
+  """Resolve unaugmented dataset paths independently of the current directory."""
+  paths = (
+    Path(train_path or config.TRAIN_PATH_NOAUG).expanduser().resolve(),
+    Path(val_path or config.VAL_PATH_NOAUG).expanduser().resolve(),
+  )
+  labels = ('training', 'validation')
+  for label, path in zip(labels, paths):
+    if not path.is_dir():
+      raise FileNotFoundError(f"{label.capitalize()} dataset directory not found: {path}")
+  return tuple(str(path) for path in paths)
 
 def visualize(dataset, config, imgName = 'test'):
   """
@@ -244,7 +328,7 @@ def predict(config, imgName, image_gt, image_meta, image_anchors):
   V.visualize_rpn_predictions(np.uint8(image_gt), sorted_anchors, imgName)
   return sorted_anchors
 
-def predict_one_image(img_paths, config, save_fig):
+def predict_one_image(img_paths, config, save_fig, rcnn=None):
   """
   predict_one_image: Predicts on a single image passed through a path
   Inputs:
@@ -258,8 +342,9 @@ def predict_one_image(img_paths, config, save_fig):
   #Since prediction only requires an array of images and an array of image_metadata we only build these.
   #This would be the equivalent of using a batch size of 1 and a dataset of 1 image, the difference is that we don't need ground truth to generate the predictions, this also means that since we're not comparing to any ground thruth we can't calculate mAP
   #Load image from path
-  rcnn = RCNN(config, 'inference')
-  rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
+  if rcnn is None:
+    rcnn = RCNN(config, 'inference')
+    rcnn.keras_model.load_weights(config.WEIGHT_SET, by_name=True)
   images = Image(img_paths, config)
   overall_class_ids = []
   overall_scores = []
@@ -411,7 +496,9 @@ def predict_uncropped_image(img_path, crop_size, crop_step, config, rcnn, save_f
       plt.close()
     return nms_pred_boxes, nms_pred_class_ids, nms_pred_scores, pred_image
   else:
-    one_boxes, one_class_ids, one_scores, oneimg = predict_one_image([img_path], config, save_fig)
+    one_boxes, one_class_ids, one_scores, oneimg = predict_one_image(
+      [img_path], config, save_fig, rcnn=rcnn
+    )
     return np.array(one_boxes), np.array(one_class_ids), np.array(one_scores), np.array(oneimg)
 
 def crop_image(image, crop_size, starting_point):
@@ -586,6 +673,7 @@ def predict_all_uncropped_metrics(img_paths, csv_paths, crop_size, crop_step, co
   return avg_mAP, mAPs, recalls, precisions, f1s, all_gt_match, all_pred_match, np.array(all_class_ids).astype('int32'), np.array(all_scores), all_pred_counts, all_gt_counts, all_img_names
 
 def write_counts_csv(csvname, img_names, gt_counts, pred_counts, fp_counts):
+  Path(csvname).parent.mkdir(parents=True, exist_ok=True)
   with open(csvname, mode='w', newline='') as labels:
     fields = ['#filename',
               'eccentric_gt',
@@ -642,10 +730,13 @@ if __name__ == '__main__':
   parser.add_argument("-p", "--path", help="Path to the image to predict or directory containing images for multiple image prediction", default='')
   parser.add_argument("-b", "--backbone", help="Backbone to use for prediction, options are \'temnet\', \'resnet101\' or \'resnet101v2\', mind weights are different for each model", default='temnet')
   parser.add_argument("-w", "--weights", help="Path to weights to use for prediction", default=None)
+  parser.add_argument("--saved-model", help="Use a SavedModel directory for inference (test_saved_model defaults to weights/<backbone>)", default=None)
+  parser.add_argument("--train-path", help="Override the unaugmented training dataset directory", default=None)
+  parser.add_argument("--val-path", help="Override the unaugmented validation dataset directory", default=None)
   parser.add_argument("-m", "--magnification", help="Magnification of the input image for prediction", default=30000, type=int)
   parser.add_argument("-g", "--gpu", help="ID of the GPU to use for inference", default='0')
   args = parser.parse_args()
-  if(args.path == ''):
+  if args.path == '' and args.data in {'single', 'multiple', 'test_saved_model'}:
       print('\n Please provide a valid path for image prediction.')
       print('Options:\n')
       print("-d", "\t --data", "\t \'single\' or \'multiple\' image prediction")
@@ -655,11 +746,13 @@ if __name__ == '__main__':
       print("-g", "\t --gpu", "\t ID of the GPU to use for inference")
   config = Config(backbone=args.backbone)
   weights_path = args.weights or config.WEIGHT_SET
+  use_saved_model = should_use_saved_model(args.data, args.saved_model)
   print(f"Prediction mode: {args.data}")
   print(f"Predicting from: {args.path}")
   print(f"Magnification of input TEM micrographs: {args.magnification}")
   print(f"Model for prediction: {config.BACKBONE}")
-  print(f"Reading weights from: {weights_path}")
+  if not use_saved_model:
+    print(f"Reading weights from: {weights_path}")
   magnification = args.magnification
   base_magnification = config.BASE_MAGNIFICATION
   base_crop_size = config.BASE_CROP_SIZE
@@ -670,8 +763,15 @@ if __name__ == '__main__':
   crop_step = (new_crop_step, new_crop_step)
   # Only load weights once
   n_gpu = args.gpu
-  rcnn = RCNN(config, 'inference')
-  rcnn.load_weights(weights_path, by_name=True)
+  if use_saved_model:
+    saved_model_path = resolve_saved_model_path(
+      config, args.backbone, args.saved_model, args.weights
+    )
+    print(f"Reading SavedModel from: {saved_model_path}")
+    rcnn = SavedModelRCNN(saved_model_path, config)
+  else:
+    rcnn = RCNN(config, 'inference')
+    rcnn.load_weights(weights_path, by_name=True)
   map_dict = dict(d.values() for d in config.CLASS_INFO)
   class_names = np.array(list(map_dict.values()))
 
@@ -696,8 +796,9 @@ if __name__ == '__main__':
     #Build image paths
     # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
     # VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
-    TRAIN_PATH = config.TRAIN_PATH_NOAUG
-    VAL_PATH = config.VAL_PATH_NOAUG
+    TRAIN_PATH, VAL_PATH = resolve_noaug_dataset_paths(
+      config, args.train_path, args.val_path
+    )
     # Read images from train and validation:
     train_ids = next(os.walk(TRAIN_PATH))[1]#All folder names in TRAIN_PATH
     val_ids = next(os.walk(VAL_PATH))[1]#All folder names in TRAIN_PATH
@@ -708,12 +809,12 @@ if __name__ == '__main__':
     #Sequentially predict on the uncropped images and store their class ids
     #Predict for both Train and Validation sets
     avg_mAP_train, mAPs_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train, fp_counts_train = predict_all_uncropped(image_paths_train, csv_paths_train, crop_size, crop_step, config)
-    write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, fp_counts_train)
+    write_counts_csv(os.path.join(config.LOGS, f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv'),img_names_train, gt_counts_train, pred_counts_train, fp_counts_train)
     avg_mAP_val, mAPs_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val, fp_counts_val = predict_all_uncropped(image_paths_val, csv_paths_val, crop_size, crop_step, config)
     #V.visualize_predictions_count(class_ids_val, scores_val, f'val_dataset_window_{crop_size[0]}')
     #V.visualize_score_histograms(np.array(class_ids_val), np.array(scores_val), f'val_dataset_window_{crop_size[0]}')
-    write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, fp_counts_val)
-    write_counts_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, fp_counts_train+fp_counts_val)
+    write_counts_csv(os.path.join(config.LOGS, f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv'),img_names_val, gt_counts_val, pred_counts_val, fp_counts_val)
+    write_counts_csv(os.path.join(config.LOGS, f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv'),img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, fp_counts_train+fp_counts_val)
     #V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
 
     print("\n")
@@ -730,8 +831,9 @@ if __name__ == '__main__':
     #Build image paths
     # TRAIN_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/train'
     # VAL_PATH = '/scratch/07655/jsreyl/imgs/rcnn_dataset_full/val'
-    TRAIN_PATH = config.TRAIN_PATH_NOAUG
-    VAL_PATH = config.VAL_PATH_NOAUG
+    TRAIN_PATH, VAL_PATH = resolve_noaug_dataset_paths(
+      config, args.train_path, args.val_path
+    )
     # Read images from train and validation:
     train_ids = next(os.walk(TRAIN_PATH))[1]#[:1]#All folder names in TRAIN_PATH
     val_ids = next(os.walk(VAL_PATH))[1]#[:1]#All folder names in TRAIN_PATH
@@ -744,12 +846,12 @@ if __name__ == '__main__':
     with(tf.device('/GPU:'+n_gpu)):
       avg_mAP_train, mAPs_train, recalls_train, precisions_train, f1s_train, gt_match_train, pred_match_train, class_ids_train, scores_train, pred_counts_train, gt_counts_train, img_names_train = predict_all_uncropped_metrics(image_paths_train, csv_paths_train, crop_size, crop_step, config, rcnn)
     precision_train, recall_train, f1_train, mAP_train, p_train, r_train = I.compute_metrics(gt_match_train, pred_match_train)
-    write_counts_csv(config.LOGS+f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train, gt_counts_train, pred_counts_train, -1*np.ones_like(pred_counts_train))
+    write_counts_csv(os.path.join(config.LOGS, f'training_counts_{config.BACKBONE}_window_{crop_size[0]}.csv'),img_names_train, gt_counts_train, pred_counts_train, -1*np.ones_like(pred_counts_train))
     with(tf.device('/GPU:'+n_gpu)):
       avg_mAP_val, mAPs_val, recalls_val, precisions_val, f1s_val, gt_match_val, pred_match_val, class_ids_val, scores_val, pred_counts_val, gt_counts_val, img_names_val = predict_all_uncropped_metrics(image_paths_val, csv_paths_val, crop_size, crop_step, config, rcnn)
     precision_val, recall_val, f1_val, mAP_val, p_val, r_val = I.compute_metrics(gt_match_val, pred_match_val)
-    write_counts_csv(config.LOGS+f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_val, gt_counts_val, pred_counts_val, -1*np.ones_like(pred_counts_val))
-    write_counts_csv(config.LOGS+f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv',img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, -1*np.ones_like(pred_counts_train+pred_counts_val))
+    write_counts_csv(os.path.join(config.LOGS, f'validation_counts_{config.BACKBONE}_window_{crop_size[0]}.csv'),img_names_val, gt_counts_val, pred_counts_val, -1*np.ones_like(pred_counts_val))
+    write_counts_csv(os.path.join(config.LOGS, f'full_counts_{config.BACKBONE}_window_{crop_size[0]}.csv'),img_names_train+img_names_val, gt_counts_train+gt_counts_val, pred_counts_train+pred_counts_val, -1*np.ones_like(pred_counts_train+pred_counts_val))
     #V.visualize_score_histograms(np.array(list(class_ids_train)+list(class_ids_val)), np.array(list(scores_train)+list(scores_val)), f'full_dataset_window_{crop_size[0]}')
 
     print("\n")
@@ -801,12 +903,6 @@ if __name__ == '__main__':
     print(f'Saving model for backbone {args.backbone}')
     rcnn.keras_model.save(str(args.backbone) + ".keras")
   elif(args.data == 'test_saved_model'):
-    import inspect
-
-    rcnn_loaded = tf.keras.models.load_model(os.path.join(os.getcwd(),args.backbone))
-    rcnn_loaded.summary()
-    inspect.getmembers(rcnn_loaded, predicate = inspect.isfunction)
-
     imgName = args.path.split('/')[-1].split('.')[0]
     print(f"Predicting with crop size: {crop_size} and crop step {crop_step}")
-    _, pred_class_ids, pred_scores, _ = predict_uncropped_image(args.path, crop_size, crop_step, config, rcnn_loaded)
+    _, pred_class_ids, pred_scores, _ = predict_uncropped_image(args.path, crop_size, crop_step, config, rcnn)

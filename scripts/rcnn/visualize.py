@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 import os, datetime
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -9,7 +10,7 @@ from config import Config, Dataset
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
 
 # Defining global path prefix so we stop saving stuff on /home/ and actually use scratch for its intended purpose
-PATH_PREFIX = os.path.abspath(os.path.join(os.getcwd(), os.pardir, os.pardir))
+PATH_PREFIX = str(Path(__file__).resolve().parents[2])
 IMAGE_PATH = os.path.join(PATH_PREFIX, 'graphs','rcnn')                     # PATH FOR GENERAL IMG SETS
 
 def fig2data ( fig ):

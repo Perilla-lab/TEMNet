@@ -6,6 +6,7 @@ Developed by Hagan Beatson, Alex Brier and Juan Rey @ Perillalab University of D
 """
 
 import cv2, copy, os, argparse
+from pathlib import Path
 from tensorflow.keras.preprocessing.image import img_to_array, load_img
 from tensorflow.keras.utils import Sequence
 import numpy as np
@@ -36,8 +37,8 @@ https://github.com/akTwelve/Mask_RCNN
 class Config(object):
     #SYSTEM SPECIFIC PATH PARAMETERS
     #CHANGE THESE TO SUIT YOUR SYSTEMS DIRECTORY
-    # PATH_PREFIX = '/scratch/07655/jsreyl/'
-    PATH_PREFIX = os.path.abspath(os.path.join(os.getcwd(), os.pardir, os.pardir)) # your_path/TEMNet/
+    # Resolve paths relative to this file so commands work from any directory.
+    PATH_PREFIX = str(Path(__file__).resolve().parents[2])
 
     LOGS = os.path.join(PATH_PREFIX, 'logs')   # SAVE PATH FOR LOGS
     WEIGHT_PATH = os.path.join(PATH_PREFIX, 'weights')                 # SAVE PATH FOR CHECKPOINTS
